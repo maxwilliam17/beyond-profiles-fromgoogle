@@ -1,0 +1,6 @@
+{
+  "name": "Beyond Profiles",
+  "description": "Personal multi-profile cloud storage, private messenger, and voice/video calling mobile app with instant notifications for every message and call.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

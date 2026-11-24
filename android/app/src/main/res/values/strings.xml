@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Beyond Profiles</string>
+    <string name="title_activity_main">Beyond Profiles</string>
+    <string name="package_name">com.beyondprofiles.app</string>
+    <string name="custom_url_scheme">com.beyondprofiles.app</string>
+</resources>
