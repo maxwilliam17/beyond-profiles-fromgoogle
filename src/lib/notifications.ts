@@ -1,5 +1,9 @@
 import {ref, set} from 'firebase/database';
 import {db} from './firebase';
+import {
+  isNativeAndroid,
+  nativeRequestNotificationPermission,
+} from './nativeBridge';
 import type {NotificationPrefs, Profile} from './types';
 
 export const VAPID_PUBLIC_KEY =
@@ -38,21 +42,46 @@ export function saveNotifPrefs(profileId: string | undefined, prefs: Notificatio
 }
 
 export function systemNotificationsAvailable(): boolean {
+  if (isNativeAndroid()) return true;
   return typeof window !== 'undefined' && 'Notification' in window && window.isSecureContext;
 }
 
 export function getNotificationPermission(): NotificationPermission | 'unsupported' {
+  if (isNativeAndroid()) return 'default';
   if (!systemNotificationsAvailable()) return 'unsupported';
   return Notification.permission;
 }
 
 export async function requestSystemNotificationPermission(): Promise<NotificationPermission | 'unsupported'> {
+  if (isNativeAndroid()) {
+    const status = await nativeRequestNotificationPermission();
+    if (!status) return 'default';
+    if (status.permission === 'granted') return 'granted';
+    if (status.permission === 'denied') return 'denied';
+    return 'default';
+  }
   if (!systemNotificationsAvailable()) return 'unsupported';
   if (Notification.permission === 'granted') return 'granted';
   try {
     return await Notification.requestPermission();
   } catch {
     return Notification.permission;
+  }
+}
+
+export function updateAppBadge(count: number): void {
+  try {
+    const nav = navigator as Navigator & {
+      setAppBadge?: (contents?: number) => Promise<void>;
+      clearAppBadge?: () => Promise<void>;
+    };
+    if (count > 0 && typeof nav.setAppBadge === 'function') {
+      nav.setAppBadge(count).catch(() => {});
+    } else if (count === 0 && typeof nav.clearAppBadge === 'function') {
+      nav.clearAppBadge().catch(() => {});
+    }
+  } catch {
+    // Unsupported browser
   }
 }
 
@@ -156,6 +185,8 @@ export async function showSystemNotification(opts: {
   callId?: string;
   isCall?: boolean;
 }): Promise<void> {
+  // On Android native APK, BeyondNotificationService handles native OS notifications directly.
+  if (isNativeAndroid()) return;
   if (!systemNotificationsAvailable() || Notification.permission !== 'granted') return;
   try {
     const payload: NotificationOptions & {
@@ -206,6 +237,7 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 }
 
 export async function registerPushSubscription(profile: Profile | null): Promise<void> {
+  if (isNativeAndroid()) return;
   if (!VAPID_PUBLIC_KEY || !profile) return;
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
   if (!systemNotificationsAvailable() || Notification.permission !== 'granted') return;
