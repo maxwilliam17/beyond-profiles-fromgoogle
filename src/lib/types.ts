@@ -21,6 +21,7 @@ export interface VaultItem {
   title?: string;
   content?: string;
   color?: string;
+  pinned?: boolean;
   createdAt?: number;
 }
 
@@ -31,11 +32,23 @@ export interface UserData {
   notes: VaultItem[];
 }
 
+export interface ChatAttachment {
+  category: VaultCategory;
+  itemId?: string;
+  title: string;
+  preview?: string;
+  data?: string;
+  mimeType?: string;
+  size?: number;
+  color?: string;
+}
+
 export interface ChatMessage {
   id: string;
   senderId: string;
   senderName?: string;
   text: string;
+  attachment?: ChatAttachment;
   createdAt: number;
 }
 

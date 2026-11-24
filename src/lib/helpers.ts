@@ -14,28 +14,28 @@ export function getInitials(name?: string): string {
 
 export function avatarColorHex(colorClass?: string): [string, string] {
   const map: Record<string, [string, string]> = {
-    'bg-red-500': ['#ef4444', '#dc2626'],
-    'bg-blue-500': ['#3b82f6', '#2563eb'],
-    'bg-green-500': ['#22c55e', '#16a34a'],
-    'bg-yellow-500': ['#eab308', '#ca8a04'],
-    'bg-purple-500': ['#a855f7', '#9333ea'],
-    'bg-pink-500': ['#ec4899', '#db2777'],
-    'bg-indigo-500': ['#6366f1', '#4f46e5'],
-    'bg-teal-500': ['#14b8a6', '#0d9488'],
+    'bg-red-500': ['#b4533c', '#8c3b28'],
+    'bg-blue-500': ['#527182', '#3d5665'],
+    'bg-green-500': ['#5A6E5C', '#435545'],
+    'bg-yellow-500': ['#9e7d34', '#735D28'],
+    'bg-purple-500': ['#7c5c7a', '#5c425a'],
+    'bg-pink-500': ['#a65d57', '#80443f'],
+    'bg-indigo-500': ['#8C5327', '#6c3e1b'],
+    'bg-teal-500': ['#4e726b', '#38554f'],
   };
-  return map[colorClass || ''] || ['#6366f1', '#4f46e5'];
+  return map[colorClass || ''] || ['#9E5A3C', '#7b432a'];
 }
 
 export function groupGradient(key: string): [string, string] {
   const palette: Array<[string, string]> = [
-    ['#6366f1', '#8b5cf6'],
-    ['#ec4899', '#f43f5e'],
-    ['#f59e0b', '#ef4444'],
-    ['#10b981', '#0ea5e9'],
-    ['#8b5cf6', '#6366f1'],
-    ['#0ea5e9', '#14b8a6'],
-    ['#ef4444', '#f97316'],
-    ['#14b8a6', '#22c55e'],
+    ['#9E5A3C', '#8C5327'],
+    ['#5A6E5C', '#475949'],
+    ['#735D28', '#8C5327'],
+    ['#9E5A3C', '#735D28'],
+    ['#5A6E5C', '#735D28'],
+    ['#8C5327', '#C97A57'],
+    ['#687D6A', '#4f6351'],
+    ['#8a5642', '#643d2d'],
   ];
   let hash = 0;
   const s = String(key || 'group');

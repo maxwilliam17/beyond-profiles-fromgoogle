@@ -11,6 +11,7 @@ import {
   PIN_LOCK_SECONDS,
   PIN_MAX_ATTEMPTS,
 } from '../lib/crypto';
+import {avatarColorHex} from '../lib/helpers';
 import type {Profile} from '../lib/types';
 import {ProfileAvatar} from './Avatar';
 import {PWAInstallButton} from './PWAInstallButton';
@@ -50,7 +51,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
   const [newName, setNewName] = useState('');
   const [newPin, setNewPin] = useState('');
   const [newPinConfirm, setNewPinConfirm] = useState('');
-  const [newColor, setNewColor] = useState('bg-blue-500');
+  const [newColor, setNewColor] = useState('bg-indigo-500');
   const [newIsKid, setNewIsKid] = useState(false);
   const [newPhoto, setNewPhoto] = useState<string | null>(null);
   const [addFormError, setAddFormError] = useState('');
@@ -61,7 +62,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
   const [editName, setEditName] = useState('');
   const [editPin, setEditPin] = useState('');
   const [editPinConfirm, setEditPinConfirm] = useState('');
-  const [editColor, setEditColor] = useState('bg-blue-500');
+  const [editColor, setEditColor] = useState('bg-indigo-500');
   const [editIsKid, setEditIsKid] = useState(false);
   const [editPhoto, setEditPhoto] = useState<string | null>(null);
   const [editPhotoChanged, setEditPhotoChanged] = useState(false);
@@ -190,7 +191,6 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
     setPinBuffer((prev) => prev.slice(0, -1));
   };
 
-  // Physical keyboard support for PIN entry
   useEffect(() => {
     if (!pinTarget) return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -213,7 +213,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
     if (isManageMode) {
       setEditTarget(profile);
       setEditName(profile.name);
-      setEditColor(profile.color || 'bg-blue-500');
+      setEditColor(profile.color || 'bg-indigo-500');
       setEditIsKid(!!profile.isKid);
       setEditPin('');
       setEditPinConfirm('');
@@ -315,10 +315,10 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
   };
 
   return (
-    <div className="min-h-full flex flex-col bg-[#0b0d14]">
+    <div className="min-h-full flex flex-col">
       {/* Top Bar */}
-      <header className="flex items-center justify-between gap-4 px-5 py-4 pt-safe border-b border-white/[0.06]">
-        <span className="font-display text-lg font-bold tracking-tight text-white whitespace-nowrap shrink-0">
+      <header className="flex items-center justify-between gap-4 px-5 py-4 pt-safe border-b border-[#FFEBD7]/[0.08] bg-[#1E1B1A]/85 backdrop-blur-md">
+        <span className="font-display text-lg font-bold tracking-tight text-[#F3EFEA] whitespace-nowrap shrink-0">
           Beyond Profiles
         </span>
         <div className="flex items-center gap-2 shrink-0">
@@ -328,8 +328,8 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
             onClick={() => setIsManageMode((m) => !m)}
             className={`min-h-[40px] px-4 py-2 rounded-xl text-xs font-medium tracking-wide transition-colors whitespace-nowrap shrink-0 ${
               isManageMode
-                ? 'bg-white text-slate-900'
-                : 'border border-white/15 text-slate-300 hover:text-white hover:border-white/30'
+                ? 'bg-[#D98A4E] text-[#181615]'
+                : 'border border-[#FFEBD7]/12 bg-[#24201E] text-[#F3EFEA] hover:bg-[#2C2724]'
             }`}
           >
             {isManageMode ? 'Done' : 'Manage'}
@@ -340,10 +340,10 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
       {/* Main Selector */}
       <main className="flex-1 flex flex-col items-center justify-center px-5 py-8 pb-safe">
         <div className="text-center mb-8 max-w-md">
-          <h1 className="font-display text-3xl sm:text-4xl font-semibold text-white tracking-tight [text-wrap:balance]">
+          <h1 className="font-display text-3xl sm:text-4xl font-semibold text-[#F3EFEA] tracking-tight [text-wrap:balance]">
             {isManageMode ? 'Manage profiles' : 'Sign in to your profile'}
           </h1>
-          <p className="text-sm text-slate-400 mt-2">
+          <p className="text-sm text-[#A39B93] mt-2">
             {isManageMode
               ? 'Tap any profile to update its photo, PIN, or settings.'
               : 'You will stay signed in on this device with live notifications until you log out.'}
@@ -356,35 +356,33 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
               key={profile.id}
               type="button"
               onClick={() => handleProfileClick(profile)}
-              className="group flex flex-col items-center gap-3 p-3 rounded-2xl hover:bg-white/[0.04] active:scale-[0.97] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              className="group flex flex-col items-center gap-3 p-3.5 rounded-2xl bg-[#24201E]/60 hover:bg-[#2A2420] border border-[#FFEBD7]/[0.07] hover:border-[#D98A4E]/40 active:scale-[0.97] transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D98A4E]"
             >
               <div className="relative">
                 <ProfileAvatar
                   profile={profile}
                   sizeClass="w-24 h-24 sm:w-28 sm:h-28"
-                  roundedClass="rounded-3xl"
+                  roundedClass="rounded-full"
                   textClass="text-2xl font-semibold"
                 />
                 {isManageMode ? (
-                  <div className="absolute inset-0 rounded-3xl bg-black/60 flex items-center justify-center">
-                    <Pencil className="w-7 h-7 text-white" />
+                  <div className="absolute inset-0 rounded-full bg-black/60 flex items-center justify-center">
+                    <Pencil className="w-7 h-7 text-[#F3EFEA]" />
                   </div>
                 ) : profile.pinHash ? (
                   <span
                     title="PIN protected"
-                    className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center"
+                    className="absolute top-1 right-1 w-7 h-7 rounded-full bg-[#181615]/80 border border-[#FFEBD7]/15 backdrop-blur-sm flex items-center justify-center"
                   >
-                    <Lock className="w-3.5 h-3.5 text-white/90" />
+                    <Lock className="w-3.5 h-3.5 text-[#D98A4E]" />
                   </span>
                 ) : null}
               </div>
               <div className="text-center">
-                <p className="text-sm sm:text-base font-medium text-slate-200 group-hover:text-white truncate max-w-[120px]">
+                <p className="text-sm sm:text-base font-medium text-[#F3EFEA] truncate max-w-[120px]">
                   {profile.name}
                 </p>
-                {profile.isKid && (
-                  <span className="text-[11px] text-slate-400">Kids profile</span>
-                )}
+                {profile.isKid && <span className="text-[11px] text-[#A39B93]">Kids profile</span>}
               </div>
             </button>
           ))}
@@ -396,18 +394,18 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
                 setNewName('');
                 setNewPin('');
                 setNewPinConfirm('');
-                setNewColor('bg-blue-500');
+                setNewColor('bg-indigo-500');
                 setNewIsKid(false);
                 setNewPhoto(null);
                 setAddFormError('');
                 setShowAdd(true);
               }}
-              className="group flex flex-col items-center gap-3 p-3 rounded-2xl hover:bg-white/[0.04] active:scale-[0.97] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              className="group flex flex-col items-center gap-3 p-3.5 rounded-2xl hover:bg-[#24201E]/70 active:scale-[0.97] transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D98A4E]"
             >
-              <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl border-2 border-dashed border-white/15 group-hover:border-indigo-400/60 flex items-center justify-center bg-white/[0.02] transition-colors">
-                <Plus className="w-9 h-9 text-slate-400 group-hover:text-white transition-colors" />
+              <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full border-2 border-dashed border-[#FFEBD7]/18 group-hover:border-[#D98A4E]/60 flex items-center justify-center bg-[#24201E]/40 transition-colors">
+                <Plus className="w-9 h-9 text-[#A39B93] group-hover:text-[#D98A4E] transition-colors" />
               </div>
-              <span className="text-sm sm:text-base font-medium text-slate-400 group-hover:text-white">
+              <span className="text-sm sm:text-base font-medium text-[#A39B93] group-hover:text-[#F3EFEA]">
                 Add Profile
               </span>
             </button>
@@ -417,12 +415,12 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
 
       {/* PIN Lock Modal */}
       {pinTarget && (
-        <div className="fixed inset-0 z-[80] bg-[#0b0d14]/98 backdrop-blur-md flex flex-col items-center justify-center px-4 py-6 pt-safe pb-safe overflow-y-auto">
+        <div className="fixed inset-0 z-[80] bg-[#181615]/98 backdrop-blur-md flex flex-col items-center justify-center px-4 py-6 pt-safe pb-safe overflow-y-auto">
           <button
             type="button"
             onClick={closePinModal}
             aria-label="Cancel PIN entry"
-            className="absolute top-4 right-4 mt-safe min-h-[44px] min-w-[44px] flex items-center justify-center rounded-2xl text-slate-400 hover:text-white hover:bg-white/10"
+            className="absolute top-4 right-4 mt-safe min-h-[44px] min-w-[44px] flex items-center justify-center rounded-2xl text-[#A39B93] hover:text-[#F3EFEA] hover:bg-[#24201E]"
           >
             <X className="w-6 h-6" />
           </button>
@@ -431,11 +429,11 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
             <ProfileAvatar
               profile={pinTarget}
               sizeClass="w-20 h-20 sm:w-24 sm:h-24"
-              roundedClass="rounded-3xl"
+              roundedClass="rounded-full"
               textClass="text-2xl font-semibold"
             />
-            <h2 className="font-display text-xl font-semibold text-white mt-4">{pinTarget.name}</h2>
-            <p className="text-sm text-slate-400 mt-1">
+            <h2 className="font-display text-xl font-semibold text-[#F3EFEA] mt-4">{pinTarget.name}</h2>
+            <p className="text-sm text-[#A39B93] mt-1">
               {pinMode === 'verify'
                 ? 'Enter your 4-digit PIN'
                 : pinMode === 'set'
@@ -450,14 +448,14 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
                   key={i}
                   className={`w-3.5 h-3.5 rounded-full border-2 transition-all ${
                     i < pinBuffer.length
-                      ? 'bg-indigo-400 border-indigo-400 scale-110'
-                      : 'border-white/25'
+                      ? 'bg-[#D98A4E] border-[#D98A4E] scale-110'
+                      : 'border-[#FFEBD7]/25'
                   }`}
                 />
               ))}
             </div>
 
-            <p className="text-xs text-rose-400 h-5 mb-2 text-center">{pinError}</p>
+            <p className="text-xs text-[#DF9878] h-5 mb-2 text-center">{pinError}</p>
 
             {/* Numeric Keypad */}
             <div className="grid grid-cols-3 gap-3 w-64">
@@ -467,7 +465,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
                   type="button"
                   disabled={lockSecondsLeft > 0}
                   onClick={() => handlePinDigit(d)}
-                  className="h-14 rounded-2xl bg-white/[0.06] hover:bg-white/[0.12] active:scale-95 border border-white/10 text-xl font-medium text-white tabular-nums transition-all disabled:opacity-30"
+                  className="h-14 rounded-2xl bg-[#24201E] hover:bg-[#2E2926] active:scale-95 border border-[#FFEBD7]/10 text-xl font-medium text-[#F3EFEA] tabular-nums transition-all disabled:opacity-30"
                 >
                   {d}
                 </button>
@@ -477,7 +475,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
                 type="button"
                 disabled={lockSecondsLeft > 0}
                 onClick={() => handlePinDigit('0')}
-                className="h-14 rounded-2xl bg-white/[0.06] hover:bg-white/[0.12] active:scale-95 border border-white/10 text-xl font-medium text-white tabular-nums transition-all disabled:opacity-30"
+                className="h-14 rounded-2xl bg-[#24201E] hover:bg-[#2E2926] active:scale-95 border border-[#FFEBD7]/10 text-xl font-medium text-[#F3EFEA] tabular-nums transition-all disabled:opacity-30"
               >
                 0
               </button>
@@ -486,7 +484,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
                 aria-label="Backspace"
                 disabled={lockSecondsLeft > 0}
                 onClick={handlePinBackspace}
-                className="h-14 rounded-2xl bg-white/[0.04] hover:bg-white/[0.1] active:scale-95 border border-white/10 flex items-center justify-center text-slate-300 transition-all disabled:opacity-30"
+                className="h-14 rounded-2xl bg-[#1E1B1A] hover:bg-[#2A2523] active:scale-95 border border-[#FFEBD7]/10 flex items-center justify-center text-[#A39B93] transition-all disabled:opacity-30"
               >
                 <Delete className="w-5 h-5" />
               </button>
@@ -498,17 +496,17 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
       {/* Add Profile Modal */}
       {showAdd && (
         <div className="fixed inset-0 z-[80] bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="w-full max-w-lg rounded-t-3xl sm:rounded-3xl bg-[#131624] border border-white/10 p-6 pb-safe max-h-[90vh] overflow-y-auto">
+          <div className="w-full max-w-lg rounded-t-3xl sm:rounded-3xl bg-[#24201E] border border-[#FFEBD7]/12 p-6 pb-safe max-h-[90vh] overflow-y-auto shadow-2xl">
             <div className="flex items-center justify-between mb-5">
               <div>
-                <h2 className="font-display text-xl font-semibold text-white">Add Profile</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Create a personal space for another member</p>
+                <h2 className="font-display text-xl font-semibold text-[#F3EFEA]">Add Profile</h2>
+                <p className="text-xs text-[#A39B93] mt-0.5">Create a personal space for another member</p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowAdd(false)}
                 aria-label="Close"
-                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-slate-400 hover:text-white hover:bg-white/10"
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-[#A39B93] hover:text-[#F3EFEA] hover:bg-[#FFEBD7]/[0.08]"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -524,10 +522,10 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
                   <ProfileAvatar
                     profile={{name: newName || 'New', color: newColor, photo: newPhoto}}
                     sizeClass="w-24 h-24"
-                    roundedClass="rounded-3xl"
+                    roundedClass="rounded-full"
                     textClass="text-2xl font-semibold"
                   />
-                  <span className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-indigo-600 border-2 border-[#131624] flex items-center justify-center text-white">
+                  <span className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-[#9E5A3C] border-2 border-[#24201E] flex items-center justify-center text-[#F3EFEA]">
                     <Camera className="w-4 h-4" />
                   </span>
                 </button>
@@ -551,7 +549,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
                   <button
                     type="button"
                     onClick={() => setNewPhoto(null)}
-                    className="text-xs text-rose-400 hover:text-rose-300 mt-2"
+                    className="text-xs text-[#DF9878] hover:underline mt-2"
                   >
                     Remove photo
                   </button>
@@ -564,7 +562,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   placeholder="Profile name"
-                  className="w-full min-h-[44px] rounded-xl bg-white/[0.06] border border-white/10 px-4 text-base text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full min-h-[44px] rounded-xl bg-[#1C1918] border border-[#FFEBD7]/10 px-4 text-base text-[#F3EFEA] placeholder-[#A39B93] focus:outline-none focus:border-[#D98A4E]/60"
                 />
 
                 <div className="grid grid-cols-2 gap-3">
@@ -575,7 +573,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
                     value={newPin}
                     onChange={(e) => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
                     placeholder="4-digit PIN"
-                    className="min-h-[44px] rounded-xl bg-white/[0.06] border border-white/10 px-3 text-center tracking-[0.3em] text-base text-white placeholder-slate-500 placeholder:tracking-normal focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="min-h-[44px] rounded-xl bg-[#1C1918] border border-[#FFEBD7]/10 px-3 text-center tracking-[0.3em] text-base text-[#F3EFEA] placeholder-[#A39B93] placeholder:tracking-normal focus:outline-none focus:border-[#D98A4E]/60"
                   />
                   <input
                     type="password"
@@ -584,24 +582,28 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
                     value={newPinConfirm}
                     onChange={(e) => setNewPinConfirm(e.target.value.replace(/\D/g, '').slice(0, 4))}
                     placeholder="Confirm PIN"
-                    className="min-h-[44px] rounded-xl bg-white/[0.06] border border-white/10 px-3 text-center tracking-[0.3em] text-base text-white placeholder-slate-500 placeholder:tracking-normal focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="min-h-[44px] rounded-xl bg-[#1C1918] border border-[#FFEBD7]/10 px-3 text-center tracking-[0.3em] text-base text-[#F3EFEA] placeholder-[#A39B93] placeholder:tracking-normal focus:outline-none focus:border-[#D98A4E]/60"
                   />
                 </div>
 
                 <div>
-                  <p className="text-xs text-slate-400 mb-2">Avatar color</p>
+                  <p className="text-xs text-[#A39B93] mb-2">Avatar color</p>
                   <div className="flex flex-wrap gap-2">
-                    {COLOR_OPTIONS.map((c) => (
-                      <button
-                        key={c}
-                        type="button"
-                        onClick={() => setNewColor(c)}
-                        aria-label={c}
-                        className={`w-7 h-7 rounded-full ${c} transition-transform ${
-                          newColor === c ? 'ring-2 ring-white ring-offset-2 ring-offset-[#131624] scale-110' : ''
-                        }`}
-                      />
-                    ))}
+                    {COLOR_OPTIONS.map((c) => {
+                      const [c1, c2] = avatarColorHex(c);
+                      return (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => setNewColor(c)}
+                          aria-label={c}
+                          style={{background: `linear-gradient(135deg, ${c1}, ${c2})`}}
+                          className={`w-7 h-7 rounded-full transition-transform ${
+                            newColor === c ? 'ring-2 ring-[#F3EFEA] ring-offset-2 ring-offset-[#24201E] scale-110' : ''
+                          }`}
+                        />
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -610,27 +612,27 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
                     type="checkbox"
                     checked={newIsKid}
                     onChange={(e) => setNewIsKid(e.target.checked)}
-                    className="w-5 h-5 accent-indigo-500 rounded"
+                    className="w-5 h-5 accent-[#C97A57] rounded"
                   />
-                  <span className="text-sm text-slate-200">Kids profile (ages 12 and under)</span>
+                  <span className="text-sm text-[#F3EFEA]">Kids profile (ages 12 and under)</span>
                 </label>
               </div>
             </div>
 
-            {addFormError && <p className="text-xs text-rose-400 mb-3">{addFormError}</p>}
+            {addFormError && <p className="text-xs text-[#DF9878] mb-3">{addFormError}</p>}
 
             <div className="flex gap-3">
               <button
                 type="button"
                 onClick={handleCreateProfile}
-                className="flex-1 min-h-[44px] rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors"
+                className="flex-1 min-h-[44px] rounded-xl bg-[#9E5A3C] hover:bg-[#B46846] text-[#F3EFEA] text-sm font-medium transition-colors"
               >
                 Create Profile
               </button>
               <button
                 type="button"
                 onClick={() => setShowAdd(false)}
-                className="min-h-[44px] px-5 rounded-xl border border-white/15 text-slate-300 hover:text-white text-sm font-medium transition-colors"
+                className="min-h-[44px] px-5 rounded-xl border border-[#FFEBD7]/15 text-[#A39B93] hover:text-[#F3EFEA] text-sm font-medium transition-colors"
               >
                 Cancel
               </button>
@@ -642,17 +644,17 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
       {/* Edit Profile Modal */}
       {editTarget && (
         <div className="fixed inset-0 z-[80] bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="w-full max-w-lg rounded-t-3xl sm:rounded-3xl bg-[#131624] border border-white/10 p-6 pb-safe max-h-[90vh] overflow-y-auto">
+          <div className="w-full max-w-lg rounded-t-3xl sm:rounded-3xl bg-[#24201E] border border-[#FFEBD7]/12 p-6 pb-safe max-h-[90vh] overflow-y-auto shadow-2xl">
             <div className="flex items-center justify-between mb-5">
               <div>
-                <h2 className="font-display text-xl font-semibold text-white">Edit Profile</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Update photo, PIN, or profile preferences</p>
+                <h2 className="font-display text-xl font-semibold text-[#F3EFEA]">Edit Profile</h2>
+                <p className="text-xs text-[#A39B93] mt-0.5">Update photo, PIN, or profile preferences</p>
               </div>
               <button
                 type="button"
                 onClick={() => setEditTarget(null)}
                 aria-label="Close"
-                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-slate-400 hover:text-white hover:bg-white/10"
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-[#A39B93] hover:text-[#F3EFEA] hover:bg-[#FFEBD7]/[0.08]"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -668,10 +670,10 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
                   <ProfileAvatar
                     profile={{name: editName || editTarget.name, color: editColor, photo: editPhoto}}
                     sizeClass="w-24 h-24"
-                    roundedClass="rounded-3xl"
+                    roundedClass="rounded-full"
                     textClass="text-2xl font-semibold"
                   />
-                  <span className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-indigo-600 border-2 border-[#131624] flex items-center justify-center text-white">
+                  <span className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-[#9E5A3C] border-2 border-[#24201E] flex items-center justify-center text-[#F3EFEA]">
                     <Camera className="w-4 h-4" />
                   </span>
                 </button>
@@ -699,7 +701,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
                       setEditPhoto(null);
                       setEditPhotoChanged(true);
                     }}
-                    className="text-xs text-rose-400 hover:text-rose-300 mt-2"
+                    className="text-xs text-[#DF9878] hover:underline mt-2"
                   >
                     Reset photo
                   </button>
@@ -712,11 +714,11 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
                   placeholder="Profile name"
-                  className="w-full min-h-[44px] rounded-xl bg-white/[0.06] border border-white/10 px-4 text-base text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full min-h-[44px] rounded-xl bg-[#1C1918] border border-[#FFEBD7]/10 px-4 text-base text-[#F3EFEA] placeholder-[#A39B93] focus:outline-none focus:border-[#D98A4E]/60"
                 />
 
                 <div>
-                  <p className="text-xs text-slate-400 mb-1.5">Change PIN (leave blank to keep current)</p>
+                  <p className="text-xs text-[#A39B93] mb-1.5">Change PIN (leave blank to keep current)</p>
                   <div className="grid grid-cols-2 gap-3">
                     <input
                       type="password"
@@ -725,7 +727,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
                       value={editPin}
                       onChange={(e) => setEditPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
                       placeholder="New PIN"
-                      className="min-h-[44px] rounded-xl bg-white/[0.06] border border-white/10 px-3 text-center tracking-[0.3em] text-base text-white placeholder-slate-500 placeholder:tracking-normal focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="min-h-[44px] rounded-xl bg-[#1C1918] border border-[#FFEBD7]/10 px-3 text-center tracking-[0.3em] text-base text-[#F3EFEA] placeholder-[#A39B93] placeholder:tracking-normal focus:outline-none focus:border-[#D98A4E]/60"
                     />
                     <input
                       type="password"
@@ -734,25 +736,29 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
                       value={editPinConfirm}
                       onChange={(e) => setEditPinConfirm(e.target.value.replace(/\D/g, '').slice(0, 4))}
                       placeholder="Confirm"
-                      className="min-h-[44px] rounded-xl bg-white/[0.06] border border-white/10 px-3 text-center tracking-[0.3em] text-base text-white placeholder-slate-500 placeholder:tracking-normal focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="min-h-[44px] rounded-xl bg-[#1C1918] border border-[#FFEBD7]/10 px-3 text-center tracking-[0.3em] text-base text-[#F3EFEA] placeholder-[#A39B93] placeholder:tracking-normal focus:outline-none focus:border-[#D98A4E]/60"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <p className="text-xs text-slate-400 mb-2">Avatar color</p>
+                  <p className="text-xs text-[#A39B93] mb-2">Avatar color</p>
                   <div className="flex flex-wrap gap-2">
-                    {COLOR_OPTIONS.map((c) => (
-                      <button
-                        key={c}
-                        type="button"
-                        onClick={() => setEditColor(c)}
-                        aria-label={c}
-                        className={`w-7 h-7 rounded-full ${c} transition-transform ${
-                          editColor === c ? 'ring-2 ring-white ring-offset-2 ring-offset-[#131624] scale-110' : ''
-                        }`}
-                      />
-                    ))}
+                    {COLOR_OPTIONS.map((c) => {
+                      const [c1, c2] = avatarColorHex(c);
+                      return (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => setEditColor(c)}
+                          aria-label={c}
+                          style={{background: `linear-gradient(135deg, ${c1}, ${c2})`}}
+                          className={`w-7 h-7 rounded-full transition-transform ${
+                            editColor === c ? 'ring-2 ring-[#F3EFEA] ring-offset-2 ring-offset-[#24201E] scale-110' : ''
+                          }`}
+                        />
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -761,34 +767,34 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
                     type="checkbox"
                     checked={editIsKid}
                     onChange={(e) => setEditIsKid(e.target.checked)}
-                    className="w-5 h-5 accent-indigo-500 rounded"
+                    className="w-5 h-5 accent-[#C97A57] rounded"
                   />
-                  <span className="text-sm text-slate-200">Kids profile</span>
+                  <span className="text-sm text-[#F3EFEA]">Kids profile</span>
                 </label>
               </div>
             </div>
 
-            {editFormError && <p className="text-xs text-rose-400 mb-3">{editFormError}</p>}
+            {editFormError && <p className="text-xs text-[#DF9878] mb-3">{editFormError}</p>}
 
             <div className="flex flex-wrap gap-3">
               <button
                 type="button"
                 onClick={handleSaveEdit}
-                className="flex-1 min-h-[44px] rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors"
+                className="flex-1 min-h-[44px] rounded-xl bg-[#9E5A3C] hover:bg-[#B46846] text-[#F3EFEA] text-sm font-medium transition-colors"
               >
                 Save Changes
               </button>
               <button
                 type="button"
                 onClick={() => setEditTarget(null)}
-                className="min-h-[44px] px-5 rounded-xl border border-white/15 text-slate-300 hover:text-white text-sm font-medium transition-colors"
+                className="min-h-[44px] px-5 rounded-xl border border-[#FFEBD7]/15 text-[#A39B93] hover:text-[#F3EFEA] text-sm font-medium transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirm(true)}
-                className="w-full sm:w-auto min-h-[44px] px-4 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20 text-sm font-medium flex items-center justify-center gap-2 transition-colors"
+                className="w-full sm:w-auto min-h-[44px] px-4 rounded-xl border border-[#C97A57]/35 bg-[#9E5A3C]/20 text-[#DF9878] hover:bg-[#9E5A3C]/35 text-sm font-medium flex items-center justify-center gap-2 transition-colors"
               >
                 <Trash2 className="w-4 h-4" />
                 <span>Delete</span>
@@ -801,26 +807,26 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
       {/* Delete Profile Confirmation */}
       {showDeleteConfirm && editTarget && (
         <div className="fixed inset-0 z-[90] bg-black/85 flex items-center justify-center p-4">
-          <div className="w-full max-w-sm rounded-3xl bg-[#131624] border border-white/10 p-6 text-center">
-            <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-rose-500/15 flex items-center justify-center">
-              <Trash2 className="w-7 h-7 text-rose-400" />
+          <div className="w-full max-w-sm rounded-3xl bg-[#24201E] border border-[#FFEBD7]/12 p-6 text-center shadow-2xl">
+            <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-[#9E5A3C]/25 flex items-center justify-center">
+              <Trash2 className="w-7 h-7 text-[#C97A57]" />
             </div>
-            <h3 className="font-display text-lg font-semibold text-white">Delete {editTarget.name}?</h3>
-            <p className="text-sm text-slate-400 mt-1 mb-5">
+            <h3 className="font-display text-lg font-semibold text-[#F3EFEA]">Delete {editTarget.name}?</h3>
+            <p className="text-sm text-[#A39B93] mt-1 mb-5">
               This removes the profile and all saved files, photos, videos, and notes.
             </p>
             <div className="flex gap-3">
               <button
                 type="button"
                 onClick={handleDeleteProfile}
-                className="flex-1 min-h-[44px] rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-sm font-medium"
+                className="flex-1 min-h-[44px] rounded-xl bg-[#9E5A3C] hover:bg-[#B46846] text-[#F3EFEA] text-sm font-medium"
               >
                 Delete
               </button>
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 min-h-[44px] rounded-xl border border-white/15 text-slate-300 hover:text-white text-sm font-medium"
+                className="flex-1 min-h-[44px] rounded-xl border border-[#FFEBD7]/15 text-[#A39B93] hover:text-[#F3EFEA] text-sm font-medium"
               >
                 Cancel
               </button>
