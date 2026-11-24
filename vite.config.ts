@@ -21,8 +21,8 @@ export default defineConfig(() => {
           name: 'Beyond Profiles',
           short_name: 'Beyond',
           description: 'Multi-profile personal cloud, private messenger, and voice/video calling mobile app.',
-          theme_color: '#0b0d14',
-          background_color: '#0b0d14',
+          theme_color: '#181615',
+          background_color: '#181615',
           display: 'standalone',
           orientation: 'portrait-primary',
           start_url: '/',
@@ -81,6 +81,8 @@ export default defineConfig(() => {
       },
     },
     server: {
+      host: '0.0.0.0',
+      allowedHosts: true as const,
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',

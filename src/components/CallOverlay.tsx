@@ -74,7 +74,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
       style={{
         background: isVideoActive
           ? '#000000'
-          : 'radial-gradient(circle at 50% 25%, #1e2144 0%, #0b0d14 65%, #07080d 100%)',
+          : 'radial-gradient(circle at 50% 25%, #34251c 0%, #181615 62%, #110f0e 100%)',
       }}
     >
       {/* Video layers */}
@@ -92,7 +92,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
               autoPlay
               playsInline
               muted
-              className="absolute top-4 right-4 mt-safe z-20 w-24 h-36 rounded-2xl object-cover border-2 border-white/25 shadow-2xl -scale-x-100 bg-black"
+              className="absolute top-4 right-4 mt-safe z-20 w-24 h-36 rounded-2xl object-cover border-2 border-[#FFEBD7]/25 shadow-2xl -scale-x-100 bg-black"
             />
           )}
         </>
@@ -105,11 +105,11 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
           isVideoActive ? 'bg-gradient-to-b from-black/65 to-transparent pb-8' : ''
         }`}
       >
-        <p className="text-sm font-medium text-slate-300 tracking-wide tabular-nums">{call.statusText}</p>
+        <p className="text-sm font-medium text-[#A39B93] tracking-wide tabular-nums">{call.statusText}</p>
         {!isVideoActive && (
           <div className="relative my-8">
             {call.ringing && (
-              <span className="absolute -inset-4 rounded-full border-2 border-indigo-400/40 animate-call-ripple" />
+              <span className="absolute -inset-4 rounded-full border-2 border-[#D98A4E]/45 animate-call-ripple" />
             )}
             <ProfileAvatar
               profile={peerProfile || {name: call.peerName, color: 'bg-indigo-500'}}
@@ -119,8 +119,8 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
             />
           </div>
         )}
-        <h2 className="font-display text-3xl font-semibold text-white mt-2">{call.peerName}</h2>
-        <p className="text-sm text-slate-300 mt-1">{call.subText}</p>
+        <h2 className="font-display text-3xl font-semibold text-[#F3EFEA] mt-2">{call.peerName}</h2>
+        <p className="text-sm text-[#A39B93] mt-1">{call.subText}</p>
       </div>
 
       {/* Controls */}
@@ -136,22 +136,22 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                 type="button"
                 onClick={onDecline}
                 aria-label="Decline call"
-                className="w-16 h-16 rounded-full bg-rose-600 hover:bg-rose-500 active:scale-95 text-white flex items-center justify-center shadow-xl transition-transform"
+                className="w-16 h-16 rounded-full bg-[#9E5A3C] hover:bg-[#B46846] active:scale-95 text-[#F3EFEA] flex items-center justify-center shadow-xl transition-transform"
               >
                 <PhoneOff className="w-7 h-7" />
               </button>
-              <span className="text-xs text-slate-300">Decline</span>
+              <span className="text-xs text-[#A39B93]">Decline</span>
             </div>
             <div className="flex flex-col items-center gap-2">
               <button
                 type="button"
                 onClick={onAccept}
                 aria-label="Accept call"
-                className="w-16 h-16 rounded-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white flex items-center justify-center shadow-xl transition-transform"
+                className="w-16 h-16 rounded-full bg-[#5A6E5C] hover:bg-[#6E8570] active:scale-95 text-[#F3EFEA] flex items-center justify-center shadow-xl transition-transform"
               >
                 {call.isVideo ? <Video className="w-7 h-7" /> : <Phone className="w-7 h-7" />}
               </button>
-              <span className="text-xs text-slate-300">Accept</span>
+              <span className="text-xs text-[#A39B93]">Accept</span>
             </div>
           </>
         ) : (
@@ -161,13 +161,13 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                 type="button"
                 onClick={onToggleMute}
                 aria-label={call.muted ? 'Unmute microphone' : 'Mute microphone'}
-                className={`w-14 h-14 rounded-full flex items-center justify-center text-white active:scale-95 transition-all ${
-                  call.muted ? 'bg-rose-600' : 'bg-white/15 hover:bg-white/25'
+                className={`w-14 h-14 rounded-full flex items-center justify-center text-[#F3EFEA] active:scale-95 transition-all ${
+                  call.muted ? 'bg-[#9E5A3C]' : 'bg-[#24201E]/90 border border-[#FFEBD7]/15 hover:bg-[#2E2926]'
                 }`}
               >
                 {call.muted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
               </button>
-              <span className="text-xs text-slate-300">{call.muted ? 'Unmute' : 'Mute'}</span>
+              <span className="text-xs text-[#A39B93]">{call.muted ? 'Unmute' : 'Mute'}</span>
             </div>
 
             {call.isVideo && (
@@ -176,13 +176,13 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                   type="button"
                   onClick={onToggleCam}
                   aria-label={call.camOff ? 'Turn camera on' : 'Turn camera off'}
-                  className={`w-14 h-14 rounded-full flex items-center justify-center text-white active:scale-95 transition-all ${
-                    call.camOff ? 'bg-rose-600' : 'bg-white/15 hover:bg-white/25'
+                  className={`w-14 h-14 rounded-full flex items-center justify-center text-[#F3EFEA] active:scale-95 transition-all ${
+                    call.camOff ? 'bg-[#9E5A3C]' : 'bg-[#24201E]/90 border border-[#FFEBD7]/15 hover:bg-[#2E2926]'
                   }`}
                 >
                   {call.camOff ? <VideoOff className="w-6 h-6" /> : <Video className="w-6 h-6" />}
                 </button>
-                <span className="text-xs text-slate-300">{call.camOff ? 'Camera off' : 'Camera'}</span>
+                <span className="text-xs text-[#A39B93]">{call.camOff ? 'Camera off' : 'Camera'}</span>
               </div>
             )}
 
@@ -191,11 +191,11 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                 type="button"
                 onClick={onEnd}
                 aria-label="End call"
-                className="w-16 h-16 rounded-full bg-rose-600 hover:bg-rose-500 active:scale-95 text-white flex items-center justify-center shadow-xl transition-transform"
+                className="w-16 h-16 rounded-full bg-[#9E5A3C] hover:bg-[#B46846] active:scale-95 text-[#F3EFEA] flex items-center justify-center shadow-xl transition-transform"
               >
                 <PhoneOff className="w-7 h-7" />
               </button>
-              <span className="text-xs text-slate-300">End</span>
+              <span className="text-xs text-[#A39B93]">End</span>
             </div>
           </>
         )}

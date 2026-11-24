@@ -23,9 +23,9 @@ export const ToastStack: React.FC<ToastStackProps> = ({toasts, onDismiss}) => {
             toast.onClick?.();
             onDismiss(toast.id);
           }}
-          className="pointer-events-auto w-full max-w-md flex items-center gap-3 p-3 rounded-2xl bg-[#16192b]/95 backdrop-blur-md border border-white/12 shadow-2xl cursor-pointer active:scale-[0.98] transition-transform"
+          className="pointer-events-auto w-full max-w-md flex items-center gap-3 p-3 rounded-2xl bg-[#24201E]/95 backdrop-blur-md border border-[#FFEBD7]/12 shadow-2xl cursor-pointer active:scale-[0.98] transition-transform"
         >
-          <div className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center shrink-0 bg-indigo-600/25 border border-indigo-400/25">
+          <div className="w-10 h-10 rounded-full overflow-hidden flex items-center justify-center shrink-0 bg-[#8C5327]/30 border border-[#D98A4E]/35">
             {toast.avatarUrl ? (
               <img
                 src={toast.avatarUrl}
@@ -34,21 +34,21 @@ export const ToastStack: React.FC<ToastStackProps> = ({toasts, onDismiss}) => {
                 className="w-full h-full object-cover"
               />
             ) : toast.kind === 'call' ? (
-              <PhoneIncoming className="w-5 h-5 text-emerald-400" />
+              <PhoneIncoming className="w-5 h-5 text-[#86A389]" />
             ) : toast.avatarInitials ? (
-              <span className="text-sm font-semibold text-white">{toast.avatarInitials}</span>
+              <span className="text-sm font-semibold text-[#F3EFEA]">{toast.avatarInitials}</span>
             ) : (
-              <Bell className="w-5 h-5 text-indigo-300" />
+              <Bell className="w-5 h-5 text-[#D98A4E]" />
             )}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-semibold text-white truncate">{toast.title}</p>
-              <span className="text-[11px] text-slate-400 tabular-nums shrink-0">
+              <p className="text-sm font-semibold text-[#F3EFEA] truncate">{toast.title}</p>
+              <span className="text-[11px] text-[#A39B93] tabular-nums shrink-0">
                 {formatClockTime(toast.timestamp)}
               </span>
             </div>
-            <p className="text-xs text-slate-300 truncate">{toast.body}</p>
+            <p className="text-xs text-[#A39B93] truncate">{toast.body}</p>
           </div>
           <button
             type="button"
@@ -57,7 +57,7 @@ export const ToastStack: React.FC<ToastStackProps> = ({toasts, onDismiss}) => {
               e.stopPropagation();
               onDismiss(toast.id);
             }}
-            className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-xl text-slate-400 hover:text-white hover:bg-white/10 shrink-0"
+            className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-xl text-[#A39B93] hover:text-[#F3EFEA] hover:bg-[#FFEBD7]/[0.08] shrink-0"
           >
             <X className="w-4 h-4" />
           </button>

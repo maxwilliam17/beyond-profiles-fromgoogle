@@ -7,13 +7,17 @@ interface ProfileAvatarProps {
   sizeClass?: string;
   roundedClass?: string;
   textClass?: string;
+  showOnlineDot?: boolean;
+  dotBorderClass?: string;
 }
 
 export const ProfileAvatar: React.FC<ProfileAvatarProps> = ({
   profile,
   sizeClass = 'w-11 h-11',
-  roundedClass = 'rounded-2xl',
+  roundedClass = 'rounded-full',
   textClass = 'text-sm font-semibold',
+  showOnlineDot = false,
+  dotBorderClass = 'border-[#1E1B1A]',
 }) => {
   const [imgError, setImgError] = useState(false);
   const photo = profile?.photo;
@@ -21,20 +25,28 @@ export const ProfileAvatar: React.FC<ProfileAvatarProps> = ({
   const initials = getInitials(profile?.name);
 
   return (
-    <div
-      className={`${sizeClass} ${roundedClass} overflow-hidden flex items-center justify-center shrink-0 select-none relative`}
-      style={{background: `linear-gradient(135deg, ${c1}, ${c2})`}}
-    >
-      {photo && !imgError ? (
-        <img
-          src={photo}
-          alt={profile?.name || 'Profile'}
-          referrerPolicy="no-referrer"
-          onError={() => setImgError(true)}
-          className="w-full h-full object-cover"
+    <div className="relative inline-flex shrink-0">
+      <div
+        className={`${sizeClass} ${roundedClass} overflow-hidden flex items-center justify-center shrink-0 select-none relative ring-1 ring-[#FFEBD7]/12`}
+        style={{background: `linear-gradient(135deg, ${c1}, ${c2})`}}
+      >
+        {photo && !imgError ? (
+          <img
+            src={photo}
+            alt={profile?.name || 'Profile'}
+            referrerPolicy="no-referrer"
+            onError={() => setImgError(true)}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <span className={`text-[#F3EFEA] tracking-wide ${textClass}`}>{initials}</span>
+        )}
+      </div>
+      {showOnlineDot && (
+        <span
+          aria-hidden="true"
+          className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-[#86A389] border-2 ${dotBorderClass}`}
         />
-      ) : (
-        <span className={`text-white tracking-wide ${textClass}`}>{initials}</span>
       )}
     </div>
   );
@@ -50,7 +62,7 @@ interface GroupAvatarProps {
 export const GroupAvatar: React.FC<GroupAvatarProps> = ({
   group,
   sizeClass = 'w-11 h-11',
-  roundedClass = 'rounded-2xl',
+  roundedClass = 'rounded-full',
   textClass = 'text-sm font-semibold',
 }) => {
   const [imgError, setImgError] = useState(false);
@@ -60,7 +72,7 @@ export const GroupAvatar: React.FC<GroupAvatarProps> = ({
 
   return (
     <div
-      className={`${sizeClass} ${roundedClass} overflow-hidden flex items-center justify-center shrink-0 select-none`}
+      className={`${sizeClass} ${roundedClass} overflow-hidden flex items-center justify-center shrink-0 select-none ring-1 ring-[#FFEBD7]/12`}
       style={{background: `linear-gradient(135deg, ${c1}, ${c2})`}}
     >
       {photo && !imgError ? (
@@ -72,7 +84,7 @@ export const GroupAvatar: React.FC<GroupAvatarProps> = ({
           className="w-full h-full object-cover"
         />
       ) : (
-        <span className={`text-white tracking-wide ${textClass}`}>{initials}</span>
+        <span className={`text-[#F3EFEA] tracking-wide ${textClass}`}>{initials}</span>
       )}
     </div>
   );

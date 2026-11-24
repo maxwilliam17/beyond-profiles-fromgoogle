@@ -3,10 +3,14 @@ import {get, onChildAdded, onChildChanged, onChildRemoved, onValue, push, ref, r
 import {
   Bell,
   BellOff,
+  ChevronDown,
+  ChevronLeft,
   FolderOpen,
-  Home,
+  Layers,
+  LogOut,
   MessageSquare,
   Phone,
+  Search,
   Settings,
 } from 'lucide-react';
 import {db} from './lib/firebase';
@@ -68,15 +72,15 @@ import type {
 import {ProfileAvatar} from './components/Avatar';
 import {CallOverlay, type ActiveCallSession} from './components/CallOverlay';
 import {CallsView} from './components/CallsView';
-import {HomeDashboard} from './components/HomeDashboard';
-import {MessengerView} from './components/MessengerView';
+import {GlobalSearchModal} from './components/GlobalSearchModal';
 import {OfflineIndicator, PWAInstallButton} from './components/PWAInstallButton';
 import {ProfilesView} from './components/ProfilesView';
 import {SettingsView} from './components/SettingsView';
 import {ToastStack} from './components/ToastStack';
 import {VaultSection} from './components/VaultSection';
+import {WorkspaceView} from './components/WorkspaceView';
 
-type AppTab = 'home' | 'vault' | 'chats' | 'calls' | 'settings';
+type AppTab = 'chats' | 'vault' | 'calls' | 'settings';
 
 const RTC_CONFIG: RTCConfiguration = {
   iceServers: [
@@ -88,8 +92,10 @@ const RTC_CONFIG: RTCConfiguration = {
 export default function App() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [currentUser, setCurrentUser] = useState<Profile | null>(() => loadSavedSession()?.profile ?? null);
-  const [activeTab, setActiveTab] = useState<AppTab>('home');
+  const [activeTab, setActiveTab] = useState<AppTab>('chats');
   const [vaultInitialCat, setVaultInitialCat] = useState<VaultCategory>('files');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
 
   const [userData, setUserData] = useState<UserData>({
     files: [],
@@ -109,12 +115,14 @@ export default function App() {
   const [callHistory, setCallHistory] = useState<CallLogEntry[]>([]);
   const [activeCallUI, setActiveCallUI] = useState<ActiveCallSession | null>(null);
 
+  const profileMenuRef = useRef<HTMLDivElement>(null);
+
   // Refs for real-time callbacks & WebRTC state
   const currentUserRef = useRef<Profile | null>(null);
   const profilesRefState = useRef<Profile[]>([]);
   const notifPrefsRef = useRef<NotificationPrefs>(DEFAULT_NOTIF_PREFS);
   const nativeNotifStatusRef = useRef<NativePermissionStatus | null>(null);
-  const activeTabRef = useRef<AppTab>('home');
+  const activeTabRef = useRef<AppTab>('chats');
   const activeConvoRef = useRef<ConversationRef | null>(null);
   const fbConnectedRef = useRef(false);
 
@@ -171,6 +179,28 @@ export default function App() {
     return () => {
       window.removeEventListener('resize', updateHeight);
       window.visualViewport?.removeEventListener('resize', updateHeight);
+    };
+  }, []);
+
+  // Global keyboard shortcut Cmd/Ctrl+K for global search & click-outside for profile menu
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        if (!currentUserRef.current) return;
+        e.preventDefault();
+        setSearchOpen((open) => !open);
+      }
+    };
+    const onPointerDown = (e: MouseEvent) => {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
+        setProfileMenuOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    document.addEventListener('mousedown', onPointerDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('mousedown', onPointerDown);
     };
   }, []);
 
@@ -413,7 +443,6 @@ export default function App() {
           nativeSyncLoggedInSession(updated, notifPrefsRef.current);
         }
       } else if (fbConnectedRef.current && navigator.onLine) {
-        // Confirm directly against the profile path before evicting a persisted session
         get(ref(db, `profiles/${active.id}`))
           .then((profileSnap) => {
             if (!profileSnap.exists() && currentUserRef.current?.id === active.id) {
@@ -500,8 +529,6 @@ export default function App() {
         },
       });
 
-      // On Android native APK with notification permission granted, BeyondNotificationService
-      // plays the native channel sound, vibration, and heads-up MessagingStyle banner — skip duplicate WebAudio/vibrate.
       const nativeHandlesAlert =
         isNativeAndroid() && nativeNotifStatusRef.current?.permission === 'granted';
 
@@ -944,7 +971,6 @@ export default function App() {
       const iAmCallee = call.calleeId === myId;
       if (!iAmCaller && !iAmCallee) return;
 
-      // New incoming call
       if (iAmCallee && (!rtcRef.current || rtcRef.current.callId !== callId)) {
         if (call.status === 'ringing') {
           if (Date.now() - (call.createdAt || 0) > 120000) return;
@@ -997,7 +1023,6 @@ export default function App() {
 
             const prefs = notifPrefsRef.current;
             if (prefs.calls) {
-              // On foreground (or Web), ring in-app; when hidden on Android, native service rings loudly
               const nativeBackgroundRinging = isNativeAndroid() && document.hidden;
               if (!nativeBackgroundRinging) {
                 startCallRingtone(prefs.sound);
@@ -1042,7 +1067,6 @@ export default function App() {
       if (!rtcRef.current || rtcRef.current.callId !== callId) return;
       const c = rtcRef.current;
 
-      // Auto-answer once offer arrives if user tapped Answer from phone notification
       if (iAmCallee && c.ringing && !c.answered && pendingAutoAnswerCallIdRef.current === callId && call.offer) {
         pendingAutoAnswerCallIdRef.current = null;
         window.setTimeout(() => acceptIncomingCallRef.current(), 50);
@@ -1118,7 +1142,7 @@ export default function App() {
     const prefs = loadNotifPrefs(profile.id);
     setNotifPrefs(prefs);
     setCurrentUser(profile);
-    setActiveTab('home');
+    setActiveTab('chats');
     setActiveConvo(null);
 
     if (isNativeAndroid()) {
@@ -1139,6 +1163,7 @@ export default function App() {
 
   // Explicit Log Out handler — clears saved session & stops phone background notifications
   const handleLogout = useCallback(async () => {
+    setProfileMenuOpen(false);
     endActiveCall(true);
     clearSavedSession();
     await nativeLogout();
@@ -1150,7 +1175,7 @@ export default function App() {
     seenIncomingCallsRef.current.clear();
     setCallHistory([]);
     setActiveConvo(null);
-    setActiveTab('home');
+    setActiveTab('chats');
     setCurrentUser(null);
     pushToast({
       title: 'Logged out',
@@ -1159,14 +1184,18 @@ export default function App() {
     });
   }, [endActiveCall, pushToast]);
 
-  // Computed counts for badges & title
-  const {unreadCount, conversationCount} = useMemo(() => {
-    if (!currentUser) return {unreadCount: 0, conversationCount: 0};
+  // Computed counts for header counter, badges & title
+  const totalVaultItems =
+    userData.files.length +
+    userData.photos.length +
+    userData.videos.length +
+    userData.notes.length;
+
+  const {unreadCount} = useMemo(() => {
+    if (!currentUser) return {unreadCount: 0};
     let unread = 0;
-    let convos = 0;
     Object.entries(chatsData).forEach(([id, chat]) => {
       if (!isMyChat(id, chat, currentUser.id)) return;
-      convos += 1;
       const myRead = chat?.reads?.[currentUser.id] || 0;
       unread += mapMessages(chat?.messages).filter(
         (m) => m.senderId !== currentUser.id && (m.createdAt || 0) > myRead,
@@ -1174,13 +1203,12 @@ export default function App() {
     });
     Object.entries(groupsData).forEach(([, g]) => {
       if (!isMyGroup(g, currentUser.id)) return;
-      convos += 1;
       const myRead = g?.reads?.[currentUser.id] || 0;
       unread += mapMessages(g?.messages).filter(
         (m) => m.senderId !== currentUser.id && (m.createdAt || 0) > myRead,
       ).length;
     });
-    return {unreadCount: unread, conversationCount: convos};
+    return {unreadCount: unread};
   }, [chatsData, groupsData, currentUser]);
 
   useEffect(() => {
@@ -1228,115 +1256,243 @@ export default function App() {
     }
   };
 
+  const openVaultCategory = useCallback((cat: VaultCategory) => {
+    setVaultInitialCat(cat);
+    setActiveTab('vault');
+  }, []);
+
   const notificationsActive = notifPrefs.messages || notifPrefs.calls;
   const activeCallPeerProfile = activeCallUI
     ? profiles.find((p) => p.id === activeCallUI.peerId) || null
     : null;
+  const mobileInActiveChat = activeTab === 'chats' && !!activeConvo;
 
   return (
-    <div className="h-full flex flex-col bg-[#0b0d14] text-slate-100 overflow-hidden">
+    <div className="h-full flex flex-col bg-[#181615] text-[#F3EFEA] overflow-hidden">
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
       <OfflineIndicator />
 
       {!currentUser ? (
-        <div className="flex-1 overflow-y-auto custom-scroll">
+        <div className="flex-1 overflow-y-auto custom-scroll warm-ambient-bg">
           <ProfilesView profiles={profiles} onUnlock={handleUnlockProfile} />
         </div>
       ) : (
         <>
-          {/* Compact Top App Bar (<= 56px) */}
-          <header className="h-14 pt-safe px-4 sm:px-6 border-b border-white/[0.07] bg-[#101320]/90 backdrop-blur-md flex items-center justify-between gap-4 shrink-0 z-30">
-            <div className="flex items-center gap-3 min-w-0">
-              <span className="font-display text-base sm:text-lg font-bold tracking-tight text-white whitespace-nowrap shrink-0">
-                Beyond Profiles
-              </span>
+          {/* Compact Top Header Bar (visible always on desktop >= 768px; hidden on mobile inside Active Chat for full-screen chat view) */}
+          <header
+            className={`${
+              mobileInActiveChat ? 'hidden md:flex' : 'flex'
+            } h-14 pt-safe px-3 sm:px-5 border-b border-[#FFEBD7]/[0.08] bg-[#1E1B1A]/95 backdrop-blur-md items-center justify-between gap-3 shrink-0 z-30`}
+          >
+            {/* Left: < Beyond Profiles brand / back control */}
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <button
+                type="button"
+                onClick={() => {
+                  if (activeTab !== 'chats') {
+                    setActiveTab('chats');
+                  } else if (activeConvo) {
+                    setActiveConvo(null);
+                  }
+                }}
+                className="flex items-center gap-1.5 min-h-[40px] pr-2 rounded-xl hover:bg-[#FFEBD7]/[0.05] transition-colors group"
+              >
+                <ChevronLeft className="w-4 h-4 text-[#A39B93] group-hover:text-[#F3EFEA] transition-colors shrink-0" />
+                <span className="font-display text-[15px] sm:text-base font-bold tracking-tight text-[#F3EFEA] whitespace-nowrap">
+                  Beyond Profiles
+                </span>
+              </button>
+
+              {/* Compact Desktop Workspace Switcher */}
+              <nav className="hidden md:flex items-center gap-1 ml-2 pl-3 border-l border-[#FFEBD7]/[0.08]">
+                {(
+                  [
+                    {id: 'chats', label: 'Workspace'},
+                    {id: 'vault', label: 'Vault'},
+                    {id: 'calls', label: 'Calls'},
+                  ] as const
+                ).map((item) => {
+                  const active = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setActiveTab(item.id)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all duration-200 whitespace-nowrap ${
+                        active
+                          ? 'bg-[#2A2420] text-[#F3EFEA] border border-[#D98A4E]/35 shadow-sm'
+                          : 'text-[#A39B93] hover:text-[#F3EFEA] hover:bg-[#FFEBD7]/[0.04] border border-transparent'
+                      }`}
+                    >
+                      {item.label}
+                      {item.id === 'chats' && unreadCount > 0 && (
+                        <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-[#C97A57] text-[#181615] text-[10px] font-bold tabular-nums">
+                          {unreadCount > 99 ? '99+' : unreadCount}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </nav>
             </div>
 
-            {/* Desktop Tab Links */}
-            <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
-              {(['home', 'vault', 'chats', 'calls', 'settings'] as AppTab[]).map((tab) => {
-                const labels: Record<AppTab, string> = {
-                  home: 'Home',
-                  vault: 'Vault',
-                  chats: 'Messages',
-                  calls: 'Calls',
-                  settings: 'Settings',
-                };
-                const active = activeTab === tab;
-                return (
-                  <button
-                    key={tab}
-                    type="button"
-                    onClick={() => setActiveTab(tab)}
-                    className={`relative py-1 transition-colors whitespace-nowrap shrink-0 ${
-                      active ? 'text-white font-semibold' : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {labels[tab]}
-                    {tab === 'chats' && unreadCount > 0 && (
-                      <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-indigo-500 text-white text-[10px] tabular-nums">
-                        {unreadCount}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </nav>
-
-            <div className="flex items-center gap-2 shrink-0">
-              <div className="hidden sm:block">
+            {/* Right: Global Search, Notifications, Item Counter, User Profile Dropdown */}
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              <div className="hidden xl:block">
                 <PWAInstallButton variant="compact" />
               </div>
+
+              {/* Global Search Trigger */}
+              <button
+                type="button"
+                onClick={() => setSearchOpen(true)}
+                title="Global search (Ctrl+K)"
+                aria-label="Global search"
+                className="min-h-[40px] min-w-[40px] sm:px-3 rounded-xl bg-[#24201E] hover:bg-[#2C2724] border border-[#FFEBD7]/[0.08] text-[#A39B93] hover:text-[#F3EFEA] flex items-center justify-center gap-2 transition-colors"
+              >
+                <Search className="w-4 h-4" />
+                <span className="hidden lg:inline text-xs">Search</span>
+              </button>
+
+              {/* Notifications Toggle */}
               <button
                 type="button"
                 onClick={handleToggleAllNotifications}
                 title={notificationsActive ? 'Notifications on' : 'Notifications off'}
                 aria-label="Toggle message and call notifications"
-                className={`min-h-[40px] min-w-[40px] rounded-xl flex items-center justify-center transition-colors ${
+                className={`relative min-h-[40px] min-w-[40px] rounded-xl border flex items-center justify-center transition-colors ${
                   notificationsActive
-                    ? 'text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20'
-                    : 'text-slate-400 hover:text-white hover:bg-white/10'
+                    ? 'text-[#86A389] bg-[#5A6E5C]/20 border-[#86A389]/30 hover:bg-[#5A6E5C]/30'
+                    : 'text-[#A39B93] bg-[#24201E] border-[#FFEBD7]/[0.08] hover:text-[#F3EFEA]'
                 }`}
               >
-                {notificationsActive ? <Bell className="w-5 h-5" /> : <BellOff className="w-5 h-5" />}
+                {notificationsActive ? <Bell className="w-4 h-4" /> : <BellOff className="w-4 h-4" />}
+                {unreadCount > 0 && (
+                  <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#C97A57]" />
+                )}
               </button>
+
+              {/* Cloud Item Counter */}
               <button
                 type="button"
-                onClick={() => setActiveTab('settings')}
-                aria-label="Profile settings"
-                className="flex items-center gap-2 min-h-[40px] pl-1 pr-2 rounded-xl hover:bg-white/[0.06] transition-colors"
+                onClick={() => openVaultCategory('files')}
+                title="Stored items in your cloud vault"
+                className="hidden sm:inline-flex min-h-[40px] px-3 rounded-xl bg-[#24201E] hover:bg-[#2C2724] border border-[#FFEBD7]/[0.08] text-xs font-medium text-[#A39B93] hover:text-[#F3EFEA] items-center gap-1.5 tabular-nums transition-colors"
               >
-                <ProfileAvatar
-                  profile={currentUser}
-                  sizeClass="w-8 h-8"
-                  roundedClass="rounded-lg"
-                  textClass="text-xs font-semibold"
-                />
-                <span className="hidden lg:inline text-sm font-medium text-slate-200 max-w-[100px] truncate">
-                  {currentUser.name}
+                <Layers className="w-3.5 h-3.5 text-[#D98A4E]" />
+                <span>
+                  {totalVaultItems} {totalVaultItems === 1 ? 'item' : 'items'}
                 </span>
               </button>
+
+              {/* User Profile Dropdown */}
+              <div ref={profileMenuRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setProfileMenuOpen((v) => !v)}
+                  aria-label="Profile menu"
+                  className="flex items-center gap-2 min-h-[40px] pl-1.5 pr-2.5 rounded-xl bg-[#24201E] hover:bg-[#2C2724] border border-[#FFEBD7]/[0.08] transition-colors"
+                >
+                  <ProfileAvatar
+                    profile={currentUser}
+                    sizeClass="w-7 h-7"
+                    roundedClass="rounded-full"
+                    textClass="text-[11px] font-semibold"
+                    showOnlineDot
+                    dotBorderClass="border-[#24201E]"
+                  />
+                  <span className="hidden lg:inline text-xs font-medium text-[#F3EFEA] max-w-[96px] truncate">
+                    {currentUser.name}
+                  </span>
+                  <ChevronDown className="w-3.5 h-3.5 text-[#A39B93] hidden sm:inline" />
+                </button>
+
+                {profileMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-60 rounded-2xl bg-[#24201E] border border-[#FFEBD7]/12 shadow-2xl p-1.5 z-50 animate-view-in">
+                    <div className="px-3 py-2.5 border-b border-[#FFEBD7]/[0.08] mb-1">
+                      <p className="text-sm font-semibold text-[#F3EFEA] truncate">{currentUser.name}</p>
+                      <p className="text-[11px] text-[#86A389] mt-0.5">
+                        Signed in · {totalVaultItems} vault items
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileMenuOpen(false);
+                        setActiveTab('chats');
+                      }}
+                      className="w-full min-h-[40px] px-3 rounded-xl text-left text-xs font-medium text-[#F3EFEA] hover:bg-[#2E2926] flex items-center gap-2.5 transition-colors"
+                    >
+                      <MessageSquare className="w-4 h-4 text-[#86A389]" />
+                      <span>Workspace &amp; Chats</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileMenuOpen(false);
+                        openVaultCategory('files');
+                      }}
+                      className="w-full min-h-[40px] px-3 rounded-xl text-left text-xs font-medium text-[#F3EFEA] hover:bg-[#2E2926] flex items-center gap-2.5 transition-colors"
+                    >
+                      <FolderOpen className="w-4 h-4 text-[#D98A4E]" />
+                      <span>Cloud Vault ({totalVaultItems})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileMenuOpen(false);
+                        setActiveTab('calls');
+                      }}
+                      className="w-full min-h-[40px] px-3 rounded-xl text-left text-xs font-medium text-[#F3EFEA] hover:bg-[#2E2926] flex items-center gap-2.5 transition-colors"
+                    >
+                      <Phone className="w-4 h-4 text-[#B89748]" />
+                      <span>Voice &amp; Video Calls</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileMenuOpen(false);
+                        setActiveTab('settings');
+                      }}
+                      className="w-full min-h-[40px] px-3 rounded-xl text-left text-xs font-medium text-[#F3EFEA] hover:bg-[#2E2926] flex items-center gap-2.5 transition-colors"
+                    >
+                      <Settings className="w-4 h-4 text-[#A39B93]" />
+                      <span>Notifications &amp; Settings</span>
+                    </button>
+                    <div className="my-1 border-t border-[#FFEBD7]/[0.08]" />
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      className="w-full min-h-[40px] px-3 rounded-xl text-left text-xs font-medium text-[#DF9878] hover:bg-[#9E5A3C]/20 flex items-center gap-2.5 transition-colors"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      <span>Log Out / Switch Profile</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </header>
 
           {/* Main Content Area */}
           <main
             className={`flex-1 min-h-0 ${
-              activeTab === 'chats' ? 'overflow-hidden' : 'overflow-y-auto custom-scroll'
+              activeTab === 'chats' ? 'overflow-hidden' : 'overflow-y-auto custom-scroll warm-ambient-bg'
             }`}
           >
-            {activeTab === 'home' && (
-              <HomeDashboard
+            {activeTab === 'chats' && (
+              <WorkspaceView
                 currentUser={currentUser}
+                profiles={profiles}
                 userData={userData}
-                unreadMessages={unreadCount}
-                conversationCount={conversationCount}
-                onOpenVault={(cat) => {
-                  setVaultInitialCat(cat);
-                  setActiveTab('vault');
-                }}
-                onOpenChats={() => setActiveTab('chats')}
-                onOpenCalls={() => setActiveTab('calls')}
+                chatsData={chatsData}
+                groupsData={groupsData}
+                activeConvo={activeConvo}
+                onSelectConvo={setActiveConvo}
+                onStartCall={startCallWithProfile}
+                onOpenVault={openVaultCategory}
+                onOpenSettings={() => setActiveTab('settings')}
+                onNotify={(title, body) => pushToast({title, body, kind: 'system'})}
               />
             )}
 
@@ -1346,18 +1502,6 @@ export default function App() {
                 userData={userData}
                 initialCategory={vaultInitialCat}
                 onNotify={(title, body) => pushToast({title, body, kind: 'system'})}
-              />
-            )}
-
-            {activeTab === 'chats' && (
-              <MessengerView
-                currentUser={currentUser}
-                profiles={profiles}
-                chatsData={chatsData}
-                groupsData={groupsData}
-                activeConvo={activeConvo}
-                onSelectConvo={setActiveConvo}
-                onStartCall={startCallWithProfile}
               />
             )}
 
@@ -1454,19 +1598,18 @@ export default function App() {
             )}
           </main>
 
-          {/* Mobile Thumb-Zone Bottom Navigation Bar (hidden when inside a chat conversation so composer has full room) */}
-          {!(activeTab === 'chats' && activeConvo) && (
+          {/* Mobile Thumb-Zone Bottom Navigation Bar (hidden when inside an active chat so composer has full room) */}
+          {!mobileInActiveChat && (
             <nav
               aria-label="Mobile navigation"
-              className="md:hidden h-14 pb-safe bg-[#101320]/95 backdrop-blur-md border-t border-white/[0.08] grid grid-cols-5 items-center shrink-0 z-30"
+              className="md:hidden h-14 pb-safe bg-[#1E1B1A]/95 backdrop-blur-md border-t border-[#FFEBD7]/[0.08] grid grid-cols-4 items-center shrink-0 z-30"
             >
               {(
                 [
-                  {id: 'home', label: 'Home', icon: Home},
-                  {id: 'vault', label: 'Vault', icon: FolderOpen},
                   {id: 'chats', label: 'Chats', icon: MessageSquare, badge: unreadCount},
+                  {id: 'vault', label: 'Vault', icon: FolderOpen},
                   {id: 'calls', label: 'Calls', icon: Phone},
-                  {id: 'settings', label: 'Alerts', icon: Settings},
+                  {id: 'settings', label: 'Settings', icon: Settings},
                 ] as const
               ).map((item) => {
                 const Icon = item.icon;
@@ -1477,13 +1620,13 @@ export default function App() {
                     type="button"
                     onClick={() => setActiveTab(item.id)}
                     className={`relative h-full flex flex-col items-center justify-center gap-0.5 transition-colors ${
-                      active ? 'text-indigo-400' : 'text-slate-400 hover:text-slate-200'
+                      active ? 'text-[#D98A4E]' : 'text-[#A39B93] hover:text-[#F3EFEA]'
                     }`}
                   >
                     <div className="relative">
                       <Icon className="w-5 h-5" />
                       {'badge' in item && item.badge > 0 && (
-                        <span className="absolute -top-1.5 -right-2.5 min-w-[16px] h-4 px-1 rounded-full bg-indigo-500 text-white text-[10px] font-semibold flex items-center justify-center tabular-nums">
+                        <span className="absolute -top-1.5 -right-2.5 min-w-[16px] h-4 px-1 rounded-full bg-[#C97A57] text-[#181615] text-[10px] font-bold flex items-center justify-center tabular-nums">
                           {item.badge > 9 ? '9+' : item.badge}
                         </span>
                       )}
@@ -1494,6 +1637,21 @@ export default function App() {
               })}
             </nav>
           )}
+
+          {/* Global Search Modal */}
+          <GlobalSearchModal
+            open={searchOpen}
+            onClose={() => setSearchOpen(false)}
+            currentUser={currentUser}
+            profiles={profiles}
+            groupsData={groupsData}
+            userData={userData}
+            onOpenConvo={(convo) => {
+              setActiveTab('chats');
+              setActiveConvo(convo);
+            }}
+            onOpenVault={openVaultCategory}
+          />
         </>
       )}
 

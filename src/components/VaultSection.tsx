@@ -1,12 +1,13 @@
-import React, {useRef, useState} from 'react';
-import {ref, push, set, remove} from 'firebase/database';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
+import {push, ref, remove, set, update} from 'firebase/database';
 import {
   Download,
   FileText,
-  Folder,
   Image as ImageIcon,
+  Pin,
   Play,
   Plus,
+  Search,
   StickyNote,
   Trash2,
   Upload,
@@ -15,9 +16,16 @@ import {
 } from 'lucide-react';
 import {db} from '../lib/firebase';
 import {formatDate, formatFileSize} from '../lib/helpers';
+import {CATEGORY_THEMES, RESOURCE_CATEGORY_ORDER} from '../lib/theme';
 import type {UserData, VaultCategory, VaultItem} from '../lib/types';
 
-const NOTE_COLORS = ['#fbbf24', '#f472b6', '#60a5fa', '#4ade80', '#c084fc'];
+const NOTE_PALETTE = [
+  {id: 'amber', surface: 'rgba(140, 83, 39, 0.24)', border: 'rgba(217, 138, 78, 0.38)'},
+  {id: 'terracotta', surface: 'rgba(158, 90, 60, 0.24)', border: 'rgba(201, 122, 87, 0.38)'},
+  {id: 'ochre', surface: 'rgba(115, 93, 40, 0.24)', border: 'rgba(184, 151, 72, 0.38)'},
+  {id: 'sage', surface: 'rgba(90, 110, 92, 0.24)', border: 'rgba(134, 163, 137, 0.38)'},
+  {id: 'charcoal', surface: 'rgba(36, 32, 30, 0.92)', border: 'rgba(255, 235, 215, 0.12)'},
+];
 
 interface VaultSectionProps {
   profileId: string;
@@ -29,94 +37,100 @@ interface VaultSectionProps {
 export const VaultSection: React.FC<VaultSectionProps> = ({
   profileId,
   userData,
-  initialCategory = 'files',
+  initialCategory = 'notes',
   onNotify,
 }) => {
   const [category, setCategory] = useState<VaultCategory>(initialCategory);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string>('');
+  const [search, setSearch] = useState('');
   const [noteTitle, setNoteTitle] = useState('');
   const [noteContent, setNoteContent] = useState('');
-  const [noteColor, setNoteColor] = useState('#fbbf24');
-  const [saving, setSaving] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [dragOver, setDragOver] = useState(false);
-
-  const [viewItem, setViewItem] = useState<{item: VaultItem; type: VaultCategory} | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<{id: string; type: VaultCategory} | null>(null);
+  const [noteColor, setNoteColor] = useState('amber');
+  const [uploading, setUploading] = useState(false);
+  const [previewItem, setPreviewItem] = useState<{cat: VaultCategory; item: VaultItem} | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const items = userData[category] || [];
+  useEffect(() => {
+    setCategory(initialCategory);
+  }, [initialCategory]);
 
-  const handleSelectFile = (file: File | undefined) => {
-    if (!file) return;
-    setSelectedFile(file);
-    if (file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = (e) => setPreviewUrl(String(e.target?.result || ''));
-      reader.readAsDataURL(file);
-    } else if (file.type.startsWith('video/')) {
-      setPreviewUrl(URL.createObjectURL(file));
-    } else {
-      setPreviewUrl('');
+  const items = useMemo(() => {
+    const raw = userData[category] || [];
+    const q = search.trim().toLowerCase();
+    const filtered = q
+      ? raw.filter((it) =>
+          `${it.title || ''} ${it.name || ''} ${it.content || ''}`.toLowerCase().includes(q),
+        )
+      : raw;
+    return [...filtered].sort((a, b) => {
+      if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+      return (b.createdAt || 0) - (a.createdAt || 0);
+    });
+  }, [userData, category, search]);
+
+  const handleUploadFiles = async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return;
+    const maxSize = 6 * 1024 * 1024;
+    setUploading(true);
+    let saved = 0;
+
+    for (const file of Array.from(fileList)) {
+      if (file.size > maxSize) {
+        onNotify?.('File too large', `${file.name} exceeds the 6 MB limit.`);
+        continue;
+      }
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ''));
+          reader.onerror = () => reject(new Error('Read failed'));
+          reader.readAsDataURL(file);
+        });
+        const newRef = push(ref(db, `userData/${profileId}/${category}`));
+        await set(newRef, {
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          data: dataUrl,
+          pinned: false,
+          createdAt: Date.now(),
+        });
+        saved += 1;
+      } catch {
+        onNotify?.('Upload failed', `Could not upload ${file.name}.`);
+      }
+    }
+
+    setUploading(false);
+    if (saved > 0) {
+      onNotify?.('Saved to vault', `${saved} item${saved === 1 ? '' : 's'} uploaded.`);
     }
   };
 
-  const fileToBase64 = (file: File): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = (err) => reject(err);
-      reader.onprogress = (ev) => {
-        if (ev.lengthComputable) {
-          setUploadProgress(Math.round((ev.loaded / ev.total) * 100));
-        }
-      };
+  const handleSaveNote = async () => {
+    const title = noteTitle.trim();
+    const content = noteContent.trim();
+    if (!title && !content) return;
+    const newRef = push(ref(db, `userData/${profileId}/notes`));
+    await set(newRef, {
+      title: title || 'Untitled Note',
+      content,
+      color: noteColor,
+      pinned: true,
+      createdAt: Date.now(),
     });
+    setNoteTitle('');
+    setNoteContent('');
+    onNotify?.('Note saved', 'Pinned to your Notes & Resources panel.');
+  };
 
-  const handleSave = async () => {
-    if (!profileId) return;
-    setSaving(true);
-    setUploadProgress(0);
-    try {
-      if (category === 'notes') {
-        const newRef = push(ref(db, `userData/${profileId}/notes`));
-        await set(newRef, {
-          title: noteTitle.trim() || 'Untitled',
-          content: noteContent.trim(),
-          color: noteColor,
-          createdAt: Date.now(),
-        });
-      } else if (selectedFile) {
-        const maxSize = 7 * 1024 * 1024;
-        if (selectedFile.size > maxSize) {
-          onNotify?.('File too large', 'Maximum file size is 7 MB.');
-          setSaving(false);
-          return;
-        }
-        const base64Data = await fileToBase64(selectedFile);
-        const newRef = push(ref(db, `userData/${profileId}/${category}`));
-        await set(newRef, {
-          name: selectedFile.name,
-          size: selectedFile.size,
-          type: selectedFile.type,
-          data: base64Data,
-          createdAt: Date.now(),
-        });
-      }
-      setShowAddModal(false);
-      setSelectedFile(null);
-      setPreviewUrl('');
-      setNoteTitle('');
-      setNoteContent('');
-    } catch {
-      onNotify?.('Save failed', 'Could not upload item. Please try again.');
-    } finally {
-      setSaving(false);
-      setUploadProgress(0);
-    }
+  const handleTogglePin = async (cat: VaultCategory, item: VaultItem) => {
+    await update(ref(db, `userData/${profileId}/${cat}/${item.id}`), {
+      pinned: !item.pinned,
+    }).catch(() => {});
+  };
+
+  const handleDelete = async (cat: VaultCategory, id: string) => {
+    await remove(ref(db, `userData/${profileId}/${cat}/${id}`)).catch(() => {});
   };
 
   const handleDownload = (item: VaultItem) => {
@@ -129,23 +143,20 @@ export const VaultSection: React.FC<VaultSectionProps> = ({
     document.body.removeChild(a);
   };
 
-  const handleConfirmDelete = async () => {
-    if (!deleteTarget) return;
-    try {
-      await remove(ref(db, `userData/${profileId}/${deleteTarget.type}/${deleteTarget.id}`));
-      setDeleteTarget(null);
-    } catch {
-      onNotify?.('Delete failed', 'Could not delete item.');
+  const iconFor = (cat: VaultCategory) => {
+    switch (cat) {
+      case 'notes':
+        return StickyNote;
+      case 'photos':
+        return ImageIcon;
+      case 'videos':
+        return Video;
+      case 'files':
+        return FileText;
     }
   };
 
-  const tabs: Array<{id: VaultCategory; label: string; count: number; icon: React.ReactNode}> = [
-    {id: 'files', label: 'Files', count: userData.files.length, icon: <Folder className="w-4 h-4" />},
-    {id: 'photos', label: 'Photos', count: userData.photos.length, icon: <ImageIcon className="w-4 h-4" />},
-    {id: 'videos', label: 'Videos', count: userData.videos.length, icon: <Video className="w-4 h-4" />},
-    {id: 'notes', label: 'Notes', count: userData.notes.length, icon: <StickyNote className="w-4 h-4" />},
-  ];
-
+  const activeTheme = CATEGORY_THEMES[category];
   const acceptMap: Record<VaultCategory, string> = {
     files: '*/*',
     photos: 'image/*',
@@ -154,437 +165,413 @@ export const VaultSection: React.FC<VaultSectionProps> = ({
   };
 
   return (
-    <div className="px-4 sm:px-6 lg:px-8 py-5 max-w-6xl mx-auto">
-      {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-        <div className="grid grid-cols-4 gap-1 p-1 rounded-xl bg-white/[0.04] border border-white/[0.07]">
-          {tabs.map((tab) => {
-            const active = category === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setCategory(tab.id)}
-                className={`min-h-[40px] px-2.5 sm:px-3.5 py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                  active ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                {tab.icon}
-                <span>{tab.label}</span>
-                <span className="tabular-nums opacity-75">({tab.count})</span>
-              </button>
-            );
-          })}
+    <div className="px-4 sm:px-6 lg:px-8 py-5 max-w-6xl mx-auto space-y-5">
+      {/* Header & Search */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="font-display text-xl sm:text-2xl font-semibold text-[#F3EFEA] tracking-tight">
+            Cloud Vault &amp; Resources
+          </h1>
+          <p className="text-xs text-[#A39B93] mt-0.5">
+            Pin any item to keep it handy in your Workspace Resources panel.
+          </p>
         </div>
-
-        <button
-          type="button"
-          onClick={() => {
-            setSelectedFile(null);
-            setPreviewUrl('');
-            setNoteTitle('');
-            setNoteContent('');
-            setShowAddModal(true);
-          }}
-          className="min-h-[44px] px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium flex items-center justify-center gap-2 transition-colors whitespace-nowrap shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add {category === 'notes' ? 'Note' : category.slice(0, -1)}</span>
-        </button>
+        <div className="relative w-full sm:w-64">
+          <Search className="w-4 h-4 text-[#A39B93] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={`Search ${activeTheme.label.toLowerCase()}...`}
+            className="w-full min-h-[42px] rounded-full bg-[#24201E] border border-[#FFEBD7]/10 pl-10 pr-4 text-sm text-[#F3EFEA] placeholder-[#A39B93] focus:outline-none focus:border-[#D98A4E]/55"
+          />
+        </div>
       </div>
 
-      {/* Drop Zone on Desktop */}
-      {category !== 'notes' && (
+      {/* Color-Coded Category Switcher */}
+      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+        {RESOURCE_CATEGORY_ORDER.map((cat) => {
+          const t = CATEGORY_THEMES[cat];
+          const Icon = iconFor(cat);
+          const count = (userData[cat] || []).length;
+          const active = category === cat;
+          return (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => setCategory(cat)}
+              className="min-h-[44px] px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 whitespace-nowrap shrink-0 transition-all duration-200"
+              style={{
+                backgroundColor: active ? t.pillActiveBg : t.pillBg,
+                border: `1px solid ${active ? t.pillBorder : t.cardBorder}`,
+                color: '#F3EFEA',
+                boxShadow: active ? t.pillGlow : 'none',
+              }}
+            >
+              <Icon className="w-4 h-4 shrink-0" style={{color: t.highlight}} />
+              <span>{t.label}</span>
+              <span
+                className="text-xs px-1.5 py-0.5 rounded-full tabular-nums"
+                style={{backgroundColor: 'rgba(24, 22, 21, 0.45)', color: t.textAccent}}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Upload Dropzone or Note Composer */}
+      {category !== 'notes' ? (
         <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragOver(true);
-          }}
-          onDragLeave={() => setDragOver(false)}
+          onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault();
-            setDragOver(false);
-            const file = e.dataTransfer.files?.[0];
-            if (file) {
-              handleSelectFile(file);
-              setShowAddModal(true);
-            }
+            handleUploadFiles(e.dataTransfer.files);
           }}
-          className={`hidden md:flex items-center justify-center gap-3 rounded-2xl border border-dashed p-5 mb-5 transition-colors ${
-            dragOver ? 'border-indigo-400 bg-indigo-500/10' : 'border-white/10 bg-white/[0.02]'
-          }`}
+          className="rounded-2xl border border-dashed p-5 flex flex-col sm:flex-row items-center justify-between gap-4 transition-colors"
+          style={{
+            backgroundColor: activeTheme.cardBg,
+            borderColor: activeTheme.pillBorder,
+          }}
         >
-          <Upload className="w-5 h-5 text-slate-400" />
-          <span className="text-sm text-slate-400">Drag and drop {category} here to upload</span>
+          <div className="flex items-center gap-3 text-center sm:text-left">
+            <div
+              className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0"
+              style={{backgroundColor: activeTheme.iconBg, color: activeTheme.highlight}}
+            >
+              <Upload className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-[#F3EFEA]">
+                {uploading ? 'Uploading to cloud…' : `Upload ${activeTheme.label}`}
+              </p>
+              <p className="text-xs text-[#A39B93]">
+                Drop files here or choose from your device (up to 6 MB each)
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            disabled={uploading}
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full sm:w-auto min-h-[44px] px-5 py-2.5 rounded-xl text-[#F3EFEA] text-sm font-medium flex items-center justify-center gap-2 transition-opacity disabled:opacity-50 whitespace-nowrap shrink-0"
+            style={{backgroundColor: activeTheme.surface}}
+          >
+            <Plus className="w-4 h-4" />
+            <span>Choose {activeTheme.label}</span>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept={acceptMap[category]}
+            className="hidden"
+            onChange={(e) => {
+              handleUploadFiles(e.target.files);
+              e.target.value = '';
+            }}
+          />
+        </div>
+      ) : (
+        <div
+          className="rounded-2xl border p-4 sm:p-5 space-y-3"
+          style={{
+            backgroundColor: '#24201E',
+            borderColor: CATEGORY_THEMES.notes.cardBorder,
+          }}
+        >
+          <input
+            type="text"
+            value={noteTitle}
+            onChange={(e) => setNoteTitle(e.target.value)}
+            placeholder="Note title…"
+            className="w-full min-h-[44px] rounded-xl bg-[#1C1918] border border-[#FFEBD7]/[0.08] px-4 text-base font-medium text-[#F3EFEA] placeholder-[#A39B93] focus:outline-none focus:border-[#D98A4E]/60"
+          />
+          <textarea
+            rows={3}
+            value={noteContent}
+            onChange={(e) => setNoteContent(e.target.value)}
+            placeholder="Write a note, link, or checklist…"
+            className="w-full rounded-xl bg-[#1C1918] border border-[#FFEBD7]/[0.08] p-3.5 text-sm text-[#F3EFEA] placeholder-[#A39B93] focus:outline-none focus:border-[#D98A4E]/60 resize-none"
+          />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              {NOTE_PALETTE.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  aria-label={`Color ${c.id}`}
+                  onClick={() => setNoteColor(c.id)}
+                  className={`w-7 h-7 rounded-full border transition-transform ${
+                    noteColor === c.id ? 'ring-2 ring-[#F3EFEA] scale-110' : ''
+                  }`}
+                  style={{backgroundColor: c.surface, borderColor: c.border}}
+                />
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={handleSaveNote}
+              className="min-h-[44px] px-5 py-2 rounded-xl bg-[#8C5327] hover:bg-[#A66533] text-[#F3EFEA] text-sm font-medium inline-flex items-center gap-2 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Save Note</span>
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Grid or Empty */}
+      {/* Items List / Grid */}
       {items.length === 0 ? (
-        <div className="rounded-2xl border border-white/[0.07] bg-[#131624]/60 py-14 px-6 text-center">
-          <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-white/[0.05] flex items-center justify-center text-slate-400">
-            {category === 'files' && <Folder className="w-7 h-7" />}
-            {category === 'photos' && <ImageIcon className="w-7 h-7" />}
-            {category === 'videos' && <Video className="w-7 h-7" />}
-            {category === 'notes' && <StickyNote className="w-7 h-7" />}
-          </div>
-          <p className="text-sm font-medium text-slate-200">No {category} yet</p>
-          <p className="text-xs text-slate-400 mt-1 mb-5">
-            Items uploaded here are synced across your devices in real time.
+        <div className="rounded-2xl border border-[#FFEBD7]/[0.08] bg-[#24201E]/70 py-14 px-6 text-center">
+          <p className="text-sm text-[#A39B93]">
+            {search ? `No ${activeTheme.label.toLowerCase()} match "${search}".` : `No ${activeTheme.label.toLowerCase()} saved yet.`}
           </p>
-          <button
-            type="button"
-            onClick={() => setShowAddModal(true)}
-            className="min-h-[44px] px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium inline-flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add your first item</span>
-          </button>
         </div>
-      ) : category === 'notes' ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {items.map((note) => (
-            <div
-              key={note.id}
-              onClick={() => setViewItem({item: note, type: 'notes'})}
-              className="rounded-2xl p-5 border border-white/10 bg-[#131624] hover:bg-[#181c2e] transition-colors cursor-pointer relative group"
-            >
-              <div className="flex items-start justify-between gap-2 mb-2">
-                <h3 className="font-semibold text-white truncate">{note.title || 'Untitled'}</h3>
+      ) : category === 'files' ? (
+        <div className="rounded-2xl border border-[#FFEBD7]/[0.08] bg-[#24201E] divide-y divide-[#FFEBD7]/[0.06]">
+          {items.map((item) => (
+            <div key={item.id} className="flex items-center justify-between gap-3 p-3.5 sm:p-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <span
+                  className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                  style={{
+                    backgroundColor: CATEGORY_THEMES.files.iconBg,
+                    color: CATEGORY_THEMES.files.highlight,
+                  }}
+                >
+                  <FileText className="w-5 h-5" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-[#F3EFEA] truncate">{item.name}</p>
+                  <p className="text-xs text-[#A39B93] tabular-nums">
+                    {formatFileSize(item.size)} · {formatDate(item.createdAt)}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
                 <button
                   type="button"
-                  aria-label="Delete note"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDeleteTarget({id: note.id, type: 'notes'});
-                  }}
-                  className="min-h-[36px] min-w-[36px] -mr-2 -mt-1 flex items-center justify-center rounded-xl text-slate-400 hover:text-rose-400 hover:bg-white/10"
+                  onClick={() => handleTogglePin('files', item)}
+                  aria-label={item.pinned ? 'Unpin file' : 'Pin file'}
+                  className={`min-h-[42px] min-w-[42px] flex items-center justify-center rounded-xl transition-colors ${
+                    item.pinned
+                      ? 'text-[#86A389] bg-[#5A6E5C]/25'
+                      : 'text-[#A39B93] hover:text-[#F3EFEA] hover:bg-[#FFEBD7]/[0.06]'
+                  }`}
+                >
+                  <Pin className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDownload(item)}
+                  aria-label={`Download ${item.name}`}
+                  className="min-h-[42px] min-w-[42px] flex items-center justify-center rounded-xl text-[#A39B93] hover:text-[#F3EFEA] hover:bg-[#FFEBD7]/[0.06]"
+                >
+                  <Download className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDelete('files', item.id)}
+                  aria-label={`Delete ${item.name}`}
+                  className="min-h-[42px] min-w-[42px] flex items-center justify-center rounded-xl text-[#A39B93] hover:text-[#DF9878] hover:bg-[#9E5A3C]/20"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
-              </div>
-              <p className="text-sm text-slate-300 line-clamp-3 whitespace-pre-wrap">{note.content || ''}</p>
-              <div className="flex items-center gap-2 mt-4 text-xs text-slate-400">
-                <span
-                  className="w-2.5 h-2.5 rounded-full shrink-0"
-                  style={{backgroundColor: note.color || '#fbbf24'}}
-                />
-                <span>{formatDate(note.createdAt)}</span>
               </div>
             </div>
           ))}
         </div>
       ) : category === 'photos' ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-          {items.map((photo) => (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5">
+          {items.map((item) => (
             <div
-              key={photo.id}
-              onClick={() => setViewItem({item: photo, type: 'photos'})}
-              className="relative aspect-square rounded-2xl overflow-hidden bg-[#131624] border border-white/10 cursor-pointer group"
+              key={item.id}
+              onClick={() => setPreviewItem({cat: 'photos', item})}
+              className="group relative aspect-square rounded-2xl overflow-hidden bg-[#24201E] border border-[#C97A57]/25 cursor-pointer"
             >
-              {photo.data && (
-                <img
-                  src={photo.data}
-                  alt={photo.name || 'Photo'}
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover"
-                />
-              )}
-              <div className="absolute inset-x-0 bottom-0 p-2.5 bg-gradient-to-t from-black/80 via-black/40 to-transparent">
-                <p className="text-xs text-white truncate">{photo.name}</p>
-              </div>
+              <img
+                src={item.data}
+                alt={item.name || 'Photo'}
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+              />
               <button
                 type="button"
-                aria-label="Delete photo"
+                aria-label={item.pinned ? 'Unpin photo' : 'Pin photo'}
                 onClick={(e) => {
                   e.stopPropagation();
-                  setDeleteTarget({id: photo.id, type: 'photos'});
+                  handleTogglePin('photos', item);
                 }}
-                className="absolute top-2 right-2 min-h-[36px] min-w-[36px] rounded-xl bg-black/60 text-white hover:bg-rose-600 flex items-center justify-center transition-colors"
+                className={`absolute top-2 right-2 w-8 h-8 rounded-xl backdrop-blur-sm flex items-center justify-center transition-colors ${
+                  item.pinned ? 'bg-[#9E5A3C] text-[#F3EFEA]' : 'bg-black/55 text-[#F3EFEA]/80 hover:bg-black/75'
+                }`}
               >
-                <Trash2 className="w-4 h-4" />
+                <Pin className="w-3.5 h-3.5" />
               </button>
+              <div className="absolute inset-x-0 bottom-0 p-2.5 bg-gradient-to-t from-black/85 via-black/45 to-transparent flex items-end justify-between gap-2">
+                <p className="text-xs text-[#F3EFEA] truncate">{item.name}</p>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    aria-label="Download"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDownload(item);
+                    }}
+                    className="p-1.5 rounded-lg bg-black/55 text-[#F3EFEA] hover:bg-[#9E5A3C]"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Delete"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete('photos', item.id);
+                    }}
+                    className="p-1.5 rounded-lg bg-black/55 text-[#DF9878] hover:bg-[#9E5A3C]"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
             </div>
           ))}
         </div>
       ) : category === 'videos' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {items.map((video) => (
+          {items.map((item) => (
             <div
-              key={video.id}
-              onClick={() => setViewItem({item: video, type: 'videos'})}
-              className="relative aspect-video rounded-2xl overflow-hidden bg-[#131624] border border-white/10 cursor-pointer group"
+              key={item.id}
+              className="rounded-2xl overflow-hidden bg-[#24201E] border border-[#B89748]/25"
             >
-              {video.data && <video src={video.data} className="w-full h-full object-cover" />}
-              <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
-                <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                  <Play className="w-5 h-5 text-white ml-0.5" fill="currentColor" />
+              <div
+                onClick={() => setPreviewItem({cat: 'videos', item})}
+                className="relative aspect-video bg-black cursor-pointer flex items-center justify-center"
+              >
+                <video src={item.data} className="w-full h-full object-cover opacity-80" />
+                <span className="absolute w-12 h-12 rounded-full bg-[#735D28]/90 border border-[#B89748]/60 flex items-center justify-center text-[#F3EFEA]">
+                  <Play className="w-5 h-5 ml-0.5" fill="currentColor" />
+                </span>
+              </div>
+              <div className="p-3.5 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-[#F3EFEA] truncate">{item.name}</p>
+                  <p className="text-xs text-[#A39B93] tabular-nums">{formatFileSize(item.size)}</p>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    aria-label={item.pinned ? 'Unpin video' : 'Pin video'}
+                    onClick={() => handleTogglePin('videos', item)}
+                    className={`min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl ${
+                      item.pinned ? 'text-[#B89748] bg-[#735D28]/30' : 'text-[#A39B93] hover:text-[#F3EFEA]'
+                    }`}
+                  >
+                    <Pin className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Download"
+                    onClick={() => handleDownload(item)}
+                    className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-[#A39B93] hover:text-[#F3EFEA]"
+                  >
+                    <Download className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Delete"
+                    onClick={() => handleDelete('videos', item.id)}
+                    className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-[#A39B93] hover:text-[#DF9878]"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
-              <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/85 via-black/40 to-transparent">
-                <p className="text-xs text-white truncate">{video.name}</p>
-              </div>
-              <button
-                type="button"
-                aria-label="Delete video"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDeleteTarget({id: video.id, type: 'videos'});
-                }}
-                className="absolute top-2 right-2 min-h-[36px] min-w-[36px] rounded-xl bg-black/60 text-white hover:bg-rose-600 flex items-center justify-center transition-colors"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
             </div>
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-          {items.map((file) => (
-            <div
-              key={file.id}
-              onClick={() => handleDownload(file)}
-              className="rounded-2xl p-4 bg-[#131624] border border-white/10 hover:bg-[#181c2e] transition-colors cursor-pointer flex items-center gap-3.5"
-            >
-              <div className="w-11 h-11 rounded-xl bg-indigo-500/15 text-indigo-300 flex items-center justify-center shrink-0">
-                <FileText className="w-5 h-5" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-white truncate">{file.name}</p>
-                <p className="text-xs text-slate-400 tabular-nums mt-0.5">
-                  {formatFileSize(file.size)} · {formatDate(file.createdAt)}
-                </p>
-              </div>
-              <button
-                type="button"
-                aria-label="Download file"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDownload(file);
-                }}
-                className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-slate-400 hover:text-white hover:bg-white/10"
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {items.map((note) => {
+            const swatch = NOTE_PALETTE.find((n) => n.id === note.color) || NOTE_PALETTE[0];
+            return (
+              <div
+                key={note.id}
+                className="rounded-2xl border p-4 flex flex-col justify-between min-h-[145px]"
+                style={{backgroundColor: swatch.surface, borderColor: swatch.border}}
               >
-                <Download className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                aria-label="Delete file"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDeleteTarget({id: file.id, type: 'files'});
-                }}
-                className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-slate-400 hover:text-rose-400 hover:bg-white/10"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Add Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-[80] bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="w-full max-w-lg rounded-t-3xl sm:rounded-3xl bg-[#131624] border border-white/10 p-6 pb-safe">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="font-display text-xl font-semibold text-white">
-                Add {category === 'notes' ? 'Note' : category.slice(0, -1)}
-              </h2>
-              <button
-                type="button"
-                onClick={() => setShowAddModal(false)}
-                aria-label="Close"
-                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-slate-400 hover:text-white hover:bg-white/10"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {category === 'notes' ? (
-              <div className="space-y-4">
-                <input
-                  type="text"
-                  value={noteTitle}
-                  onChange={(e) => setNoteTitle(e.target.value)}
-                  placeholder="Note title"
-                  className="w-full min-h-[44px] rounded-xl bg-white/[0.06] border border-white/10 px-4 text-base text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-                <textarea
-                  rows={5}
-                  value={noteContent}
-                  onChange={(e) => setNoteContent(e.target.value)}
-                  placeholder="Write your note..."
-                  className="w-full rounded-xl bg-white/[0.06] border border-white/10 p-4 text-base text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
-                />
-                <div className="flex items-center gap-2.5">
-                  {NOTE_COLORS.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => setNoteColor(c)}
-                      aria-label={`Select color ${c}`}
-                      className={`w-8 h-8 rounded-full transition-transform ${
-                        noteColor === c ? 'ring-2 ring-white ring-offset-2 ring-offset-[#131624] scale-110' : ''
-                      }`}
-                      style={{backgroundColor: c}}
-                    />
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div>
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-full rounded-2xl border-2 border-dashed border-white/15 hover:border-indigo-400/60 bg-white/[0.02] p-7 text-center transition-colors"
-                >
-                  <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                  <p className="text-sm font-medium text-slate-200">Tap to choose from device</p>
-                  <p className="text-xs text-slate-400 mt-1">Maximum file size 7 MB</p>
-                </button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept={acceptMap[category]}
-                  className="hidden"
-                  onChange={(e) => {
-                    handleSelectFile(e.target.files?.[0]);
-                    e.target.value = '';
-                  }}
-                />
-
-                {selectedFile && (
-                  <div className="mt-4 p-3.5 rounded-xl bg-white/[0.04] border border-white/10">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-white truncate">{selectedFile.name}</p>
-                        <p className="text-xs text-slate-400 tabular-nums">{formatFileSize(selectedFile.size)}</p>
-                      </div>
+                <div>
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <h3 className="font-display text-base font-semibold text-[#F3EFEA] break-words">
+                      {note.title || 'Untitled Note'}
+                    </h3>
+                    <div className="flex items-center gap-0.5 shrink-0">
                       <button
                         type="button"
-                        onClick={() => {
-                          setSelectedFile(null);
-                          setPreviewUrl('');
-                        }}
-                        className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-slate-400 hover:text-white"
+                        aria-label={note.pinned ? 'Unpin note' : 'Pin note'}
+                        onClick={() => handleTogglePin('notes', note)}
+                        className={`p-1.5 rounded-lg transition-colors ${
+                          note.pinned ? 'text-[#D98A4E]' : 'text-[#A39B93] hover:text-[#F3EFEA]'
+                        }`}
                       >
-                        <X className="w-4 h-4" />
+                        <Pin className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Delete note"
+                        onClick={() => handleDelete('notes', note.id)}
+                        className="p-1.5 rounded-lg text-[#A39B93] hover:text-[#DF9878]"
+                      >
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
-                    {previewUrl && category === 'photos' && (
-                      <img src={previewUrl} alt="Preview" className="mt-3 max-h-44 rounded-lg mx-auto" />
-                    )}
-                    {previewUrl && category === 'videos' && (
-                      <video src={previewUrl} controls className="mt-3 max-h-44 rounded-lg mx-auto" />
-                    )}
                   </div>
-                )}
-
-                {saving && uploadProgress > 0 && (
-                  <div className="mt-4">
-                    <div className="flex justify-between text-xs text-slate-400 mb-1 tabular-nums">
-                      <span>Uploading...</span>
-                      <span>{uploadProgress}%</span>
-                    </div>
-                    <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
-                      <div
-                        className="h-full bg-indigo-500 transition-all"
-                        style={{width: `${uploadProgress}%`}}
-                      />
-                    </div>
-                  </div>
-                )}
+                  <p className="text-sm text-[#F3EFEA]/85 whitespace-pre-wrap break-words leading-relaxed">
+                    {note.content}
+                  </p>
+                </div>
+                <p className="text-[11px] text-[#A39B93] mt-4">
+                  {formatDate(note.createdAt)}
+                  {note.pinned ? ' · Pinned' : ''}
+                </p>
               </div>
-            )}
-
-            <div className="flex gap-3 mt-6">
-              <button
-                type="button"
-                disabled={saving || (category !== 'notes' && !selectedFile)}
-                onClick={handleSave}
-                className="flex-1 min-h-[44px] rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-sm font-medium transition-colors"
-              >
-                {saving ? 'Saving...' : 'Save'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowAddModal(false)}
-                className="min-h-[44px] px-5 rounded-xl border border-white/15 text-slate-300 hover:text-white text-sm font-medium transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
+            );
+          })}
         </div>
       )}
 
-      {/* View Content Modal */}
-      {viewItem && (
+      {/* Lightbox Preview */}
+      {previewItem && (
         <div
-          onClick={() => setViewItem(null)}
-          className="fixed inset-0 z-[85] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setPreviewItem(null)}
+          className="fixed inset-0 z-[90] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4"
         >
           <button
             type="button"
+            onClick={() => setPreviewItem(null)}
             aria-label="Close preview"
-            onClick={() => setViewItem(null)}
-            className="absolute top-4 right-4 mt-safe min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl bg-white/10 text-white"
+            className="absolute top-4 right-4 mt-safe min-h-[44px] min-w-[44px] rounded-xl bg-[#24201E] border border-[#FFEBD7]/12 text-[#F3EFEA] flex items-center justify-center"
           >
-            <X className="w-6 h-6" />
+            <X className="w-5 h-5" />
           </button>
-          <div onClick={(e) => e.stopPropagation()} className="max-w-3xl w-full">
-            {viewItem.type === 'photos' && viewItem.item.data && (
+          <div onClick={(e) => e.stopPropagation()} className="max-w-4xl max-h-[85vh] w-full flex flex-col items-center">
+            {previewItem.cat === 'photos' ? (
               <img
-                src={viewItem.item.data}
-                alt={viewItem.item.name || 'Photo'}
-                className="max-h-[82vh] max-w-full mx-auto rounded-2xl"
+                src={previewItem.item.data}
+                alt={previewItem.item.name}
+                className="max-h-[75vh] max-w-full rounded-2xl border border-[#FFEBD7]/12"
               />
-            )}
-            {viewItem.type === 'videos' && viewItem.item.data && (
+            ) : (
               <video
-                src={viewItem.item.data}
+                src={previewItem.item.data}
                 controls
                 autoPlay
-                className="max-h-[82vh] max-w-full mx-auto rounded-2xl"
+                className="max-h-[75vh] max-w-full rounded-2xl border border-[#FFEBD7]/12 bg-black"
               />
             )}
-            {viewItem.type === 'notes' && (
-              <div className="rounded-3xl bg-[#131624] border border-white/10 p-6 sm:p-8 max-w-xl mx-auto">
-                <h2 className="font-display text-2xl font-semibold text-white mb-3">
-                  {viewItem.item.title || 'Untitled'}
-                </h2>
-                <p className="text-slate-200 whitespace-pre-wrap leading-relaxed">
-                  {viewItem.item.content || ''}
-                </p>
-                <p className="text-xs text-slate-400 mt-6">{formatDate(viewItem.item.createdAt)}</p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Delete Confirmation */}
-      {deleteTarget && (
-        <div className="fixed inset-0 z-[90] bg-black/85 flex items-center justify-center p-4">
-          <div className="w-full max-w-sm rounded-3xl bg-[#131624] border border-white/10 p-6 text-center">
-            <h3 className="font-display text-lg font-semibold text-white">Delete item?</h3>
-            <p className="text-sm text-slate-400 mt-1 mb-5">This action cannot be undone.</p>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={handleConfirmDelete}
-                className="flex-1 min-h-[44px] rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-sm font-medium"
-              >
-                Delete
-              </button>
-              <button
-                type="button"
-                onClick={() => setDeleteTarget(null)}
-                className="flex-1 min-h-[44px] rounded-xl border border-white/15 text-slate-300 hover:text-white text-sm font-medium"
-              >
-                Cancel
-              </button>
-            </div>
+            <p className="text-sm text-[#F3EFEA] mt-3">{previewItem.item.name}</p>
           </div>
         </div>
       )}
