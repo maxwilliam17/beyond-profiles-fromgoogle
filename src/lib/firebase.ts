@@ -1,10 +1,12 @@
 import {initializeApp, getApps, getApp} from 'firebase/app';
 import {getDatabase} from 'firebase/database';
 
+export const FIREBASE_DATABASE_URL = 'https://beyondprofiles-5b71a-default-rtdb.firebaseio.com';
+
 const firebaseConfig = {
   apiKey: 'AIzaSyD36k8EH1Xjr_eGQAS7qHZmDESfBDCN6rw',
   authDomain: 'beyondprofiles-5b71a.firebaseapp.com',
-  databaseURL: 'https://beyondprofiles-5b71a-default-rtdb.firebaseio.com',
+  databaseURL: FIREBASE_DATABASE_URL,
   projectId: 'beyondprofiles-5b71a',
   storageBucket: 'beyondprofiles-5b71a.firebasestorage.app',
   messagingSenderId: '894821956984',

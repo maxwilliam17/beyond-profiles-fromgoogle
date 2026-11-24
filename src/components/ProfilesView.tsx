@@ -341,12 +341,12 @@ export const ProfilesView: React.FC<ProfilesViewProps> = ({profiles, onUnlock}) 
       <main className="flex-1 flex flex-col items-center justify-center px-5 py-8 pb-safe">
         <div className="text-center mb-8 max-w-md">
           <h1 className="font-display text-3xl sm:text-4xl font-semibold text-white tracking-tight [text-wrap:balance]">
-            {isManageMode ? 'Manage profiles' : 'Choose your profile'}
+            {isManageMode ? 'Manage profiles' : 'Sign in to your profile'}
           </h1>
           <p className="text-sm text-slate-400 mt-2">
             {isManageMode
               ? 'Tap any profile to update its photo, PIN, or settings.'
-              : 'Tap a profile to unlock your cloud vault, chats, and calls.'}
+              : 'You will stay signed in on this device with live notifications until you log out.'}
           </p>
         </div>
 

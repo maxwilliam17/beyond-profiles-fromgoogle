@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {onChildAdded, onChildChanged, onChildRemoved, onValue, push, ref, remove, set, get} from 'firebase/database';
+import {get, onChildAdded, onChildChanged, onChildRemoved, onValue, push, ref, remove, set} from 'firebase/database';
 import {
   Bell,
   BellOff,
@@ -12,11 +12,27 @@ import {
 import {db} from './lib/firebase';
 import {
   getInitials,
-  getPartnerIdFromChatId,
   isMyChat,
   isMyGroup,
   mapMessages,
 } from './lib/helpers';
+import {
+  isNativeAndroid,
+  nativeAddNotificationActionListener,
+  nativeCheckNotificationStatus,
+  nativeClearCallNotification,
+  nativeClearConversationNotification,
+  nativeLogout,
+  nativeOpenNotificationSettings,
+  nativeRecoverSavedProfile,
+  nativeRequestBatteryOptimizationExemption,
+  nativeSetActiveScreen,
+  nativeShowTestNotification,
+  nativeSyncLoggedInSession,
+  nativeUpdateNotificationPrefs,
+  type NativeNotificationActionEvent,
+  type NativePermissionStatus,
+} from './lib/nativeBridge';
 import {
   DEFAULT_NOTIF_PREFS,
   loadNotifPrefs,
@@ -28,8 +44,14 @@ import {
   startCallRingtone,
   stopCallRingtone,
   unlockNotificationAudio,
+  updateAppBadge,
   vibrateAlert,
 } from './lib/notifications';
+import {
+  clearSavedSession,
+  loadSavedSession,
+  saveLoggedInSession,
+} from './lib/session';
 import type {
   CallLogEntry,
   CallSignalData,
@@ -65,7 +87,7 @@ const RTC_CONFIG: RTCConfiguration = {
 
 export default function App() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [currentUser, setCurrentUser] = useState<Profile | null>(null);
+  const [currentUser, setCurrentUser] = useState<Profile | null>(() => loadSavedSession()?.profile ?? null);
   const [activeTab, setActiveTab] = useState<AppTab>('home');
   const [vaultInitialCat, setVaultInitialCat] = useState<VaultCategory>('files');
 
@@ -79,7 +101,10 @@ export default function App() {
   const [groupsData, setGroupsData] = useState<Record<string, GroupChat>>({});
   const [activeConvo, setActiveConvo] = useState<ConversationRef | null>(null);
 
-  const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>(DEFAULT_NOTIF_PREFS);
+  const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>(() =>
+    loadNotifPrefs(loadSavedSession()?.profileId),
+  );
+  const [nativeNotifStatus, setNativeNotifStatus] = useState<NativePermissionStatus | null>(null);
   const [toasts, setToasts] = useState<ToastAlert[]>([]);
   const [callHistory, setCallHistory] = useState<CallLogEntry[]>([]);
   const [activeCallUI, setActiveCallUI] = useState<ActiveCallSession | null>(null);
@@ -88,13 +113,18 @@ export default function App() {
   const currentUserRef = useRef<Profile | null>(null);
   const profilesRefState = useRef<Profile[]>([]);
   const notifPrefsRef = useRef<NotificationPrefs>(DEFAULT_NOTIF_PREFS);
+  const nativeNotifStatusRef = useRef<NativePermissionStatus | null>(null);
   const activeTabRef = useRef<AppTab>('home');
   const activeConvoRef = useRef<ConversationRef | null>(null);
+  const fbConnectedRef = useRef(false);
 
   const baselineChatsLoadedRef = useRef(false);
   const baselineGroupsLoadedRef = useRef(false);
   const seenMessageKeysRef = useRef<Set<string>>(new Set());
   const pendingDeepLinkRef = useRef<{type: 'convo'; kind: 'dm' | 'group'; id: string} | null>(null);
+  const pendingAutoAnswerCallIdRef = useRef<string | null>(null);
+  const acceptIncomingCallRef = useRef<() => Promise<void>>(async () => {});
+  const autoRequestedNotifForRef = useRef<string | null>(null);
 
   // WebRTC call refs
   const rtcRef = useRef<{
@@ -124,6 +154,7 @@ export default function App() {
   currentUserRef.current = currentUser;
   profilesRefState.current = profiles;
   notifPrefsRef.current = notifPrefs;
+  nativeNotifStatusRef.current = nativeNotifStatus;
   activeTabRef.current = activeTab;
   activeConvoRef.current = activeConvo;
 
@@ -166,16 +197,161 @@ export default function App() {
     setToasts((prev) => prev.filter((item) => item.id !== id));
   }, []);
 
-  // Deep link & service worker messages
+  // Refresh native Android notification status (permission, service, battery optimization)
+  const refreshNativeStatus = useCallback(async () => {
+    if (!isNativeAndroid()) return null;
+    const status = await nativeCheckNotificationStatus();
+    if (status) setNativeNotifStatus(status);
+    return status;
+  }, []);
+
+  // Recover persistent login from Android SharedPreferences if WebView localStorage was cleared
+  useEffect(() => {
+    if (!isNativeAndroid()) return;
+    let cancelled = false;
+    refreshNativeStatus();
+
+    if (!currentUserRef.current) {
+      nativeRecoverSavedProfile().then((recovered) => {
+        if (cancelled || !recovered || currentUserRef.current) return;
+        saveLoggedInSession(recovered);
+        const prefs = loadNotifPrefs(recovered.id);
+        setNotifPrefs(prefs);
+        setCurrentUser(recovered);
+      });
+    }
+
+    const onVisibilityOrFocus = () => {
+      if (!document.hidden) {
+        refreshNativeStatus();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityOrFocus);
+    window.addEventListener('focus', onVisibilityOrFocus);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVisibilityOrFocus);
+      window.removeEventListener('focus', onVisibilityOrFocus);
+    };
+  }, [refreshNativeStatus]);
+
+  // Keep native Android foreground service & push subscription synced whenever logged in
+  useEffect(() => {
+    if (!currentUser) return;
+    let cancelled = false;
+
+    const syncDeviceNotifications = async () => {
+      const prefs = loadNotifPrefs(currentUser.id);
+      setNotifPrefs(prefs);
+
+      if (isNativeAndroid()) {
+        await nativeSyncLoggedInSession(currentUser, prefs);
+        let status = await refreshNativeStatus();
+        if (
+          !cancelled &&
+          (prefs.messages || prefs.calls) &&
+          status &&
+          status.permission === 'prompt' &&
+          autoRequestedNotifForRef.current !== currentUser.id
+        ) {
+          autoRequestedNotifForRef.current = currentUser.id;
+          await requestSystemNotificationPermission();
+          status = await refreshNativeStatus();
+          if (status?.permission === 'granted') {
+            await nativeSyncLoggedInSession(currentUser, prefs);
+          }
+        }
+      } else if (prefs.messages || prefs.calls) {
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          registerPushSubscription(currentUser);
+        }
+      }
+    };
+
+    syncDeviceNotifications();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser?.id, refreshNativeStatus]);
+
+  // Keep Android native layer aware of active tab & open conversation (suppresses & clears active chat notifications)
+  useEffect(() => {
+    if (!isNativeAndroid()) return;
+    const convoKey =
+      currentUser && activeTab === 'chats' && activeConvo
+        ? `${activeConvo.kind}:${activeConvo.id}`
+        : '';
+    nativeSetActiveScreen(activeTab, convoKey);
+    if (convoKey) {
+      nativeClearConversationNotification(convoKey);
+    }
+  }, [currentUser?.id, activeTab, activeConvo]);
+
+  // Unified handler for notification taps & call actions (both Android Native & Web ServiceWorker)
+  const handleExternalNotificationAction = useCallback(
+    (payload: NativeNotificationActionEvent) => {
+      if (payload.type === 'open-conversation' && payload.target) {
+        const idx = payload.target.indexOf(':');
+        if (idx > 0) {
+          const kind = payload.target.slice(0, idx);
+          const id = payload.target.slice(idx + 1);
+          if ((kind === 'dm' || kind === 'group') && id) {
+            if (currentUserRef.current) {
+              setActiveTab('chats');
+              setActiveConvo({kind, id});
+              nativeClearConversationNotification(`${kind}:${id}`);
+            } else {
+              pendingDeepLinkRef.current = {type: 'convo', kind, id};
+            }
+          }
+        }
+        return;
+      }
+
+      if (payload.type === 'call-action' && payload.callId) {
+        const callId = payload.callId;
+        const action = payload.action || 'open';
+        nativeClearCallNotification(callId);
+
+        if (action === 'decline') {
+          set(ref(db, `calls/${callId}/status`), 'declined').catch(() => {});
+          return;
+        }
+
+        if (action === 'answer') {
+          if (rtcRef.current && rtcRef.current.callId === callId && rtcRef.current.ringing) {
+            acceptIncomingCallRef.current();
+          } else {
+            pendingAutoAnswerCallIdRef.current = callId;
+          }
+        }
+      }
+    },
+    [],
+  );
+
+  // Deep link hash, Web ServiceWorker messages, & Native Android notification actions
   useEffect(() => {
     try {
-      const m = window.location.hash.match(/open=(dm|group):([^&]+)/);
-      if (m) {
-        pendingDeepLinkRef.current = {
-          type: 'convo',
-          kind: m[1] as 'dm' | 'group',
-          id: decodeURIComponent(m[2]),
-        };
+      const hash = window.location.hash || '';
+      const openMatch = hash.match(/open=(dm|group):([^&]+)/);
+      if (openMatch) {
+        handleExternalNotificationAction({
+          type: 'open-conversation',
+          target: `${openMatch[1]}:${decodeURIComponent(openMatch[2])}`,
+        });
+      }
+      const callMatch = hash.match(/call=([^&]+)/);
+      if (callMatch) {
+        const actionMatch = hash.match(/action=([^&]+)/);
+        handleExternalNotificationAction({
+          type: 'call-action',
+          callId: decodeURIComponent(callMatch[1]),
+          action: (actionMatch ? decodeURIComponent(actionMatch[1]) : 'open') as
+            | 'open'
+            | 'answer'
+            | 'decline',
+        });
       }
     } catch {
       // ignore
@@ -184,35 +360,81 @@ export default function App() {
     const onSwMessage = (event: MessageEvent) => {
       const data = event.data || {};
       if (data.type === 'open-conversation' && data.target) {
-        const [kind, id] = String(data.target).split(':');
-        if (kind === 'dm' || kind === 'group') {
-          if (currentUserRef.current) {
-            setActiveTab('chats');
-            setActiveConvo({kind, id});
-          } else {
-            pendingDeepLinkRef.current = {type: 'convo', kind, id};
-          }
-        }
+        handleExternalNotificationAction({
+          type: 'open-conversation',
+          target: String(data.target),
+        });
+      } else if (data.type === 'call-action' && data.callId) {
+        handleExternalNotificationAction({
+          type: 'call-action',
+          callId: String(data.callId),
+          action: (data.action || 'open') as 'open' | 'answer' | 'decline',
+        });
       }
     };
 
     navigator.serviceWorker?.addEventListener('message', onSwMessage);
-    return () => navigator.serviceWorker?.removeEventListener('message', onSwMessage);
+
+    let removeNativeListener: (() => void) | null = null;
+    nativeAddNotificationActionListener(handleExternalNotificationAction).then((cleanup) => {
+      removeNativeListener = cleanup;
+    });
+
+    return () => {
+      navigator.serviceWorker?.removeEventListener('message', onSwMessage);
+      removeNativeListener?.();
+    };
+  }, [handleExternalNotificationAction]);
+
+  // Track Firebase RTDB online connection state
+  useEffect(() => {
+    const connRef = ref(db, '.info/connected');
+    return onValue(connRef, (snap) => {
+      fbConnectedRef.current = !!snap.val();
+    });
   }, []);
 
-  // Profiles listener
+  // Profiles listener — keeps persistent logged-in profile fresh, never logs out offline
   useEffect(() => {
     const profilesDbRef = ref(db, 'profiles');
     return onValue(profilesDbRef, (snapshot) => {
       const val = snapshot.val() as Record<string, Profile> | null;
       const list = val ? Object.values(val) : [];
       setProfiles(list);
-      if (currentUserRef.current) {
-        const updated = list.find((p) => p.id === currentUserRef.current?.id);
-        if (updated) setCurrentUser(updated);
+
+      const active = currentUserRef.current;
+      if (!active) return;
+
+      const updated = list.find((p) => p.id === active.id);
+      if (updated) {
+        setCurrentUser(updated);
+        saveLoggedInSession(updated);
+        if (updated.name !== active.name && isNativeAndroid()) {
+          nativeSyncLoggedInSession(updated, notifPrefsRef.current);
+        }
+      } else if (fbConnectedRef.current && navigator.onLine) {
+        // Confirm directly against the profile path before evicting a persisted session
+        get(ref(db, `profiles/${active.id}`))
+          .then((profileSnap) => {
+            if (!profileSnap.exists() && currentUserRef.current?.id === active.id) {
+              clearSavedSession();
+              nativeLogout();
+              updateAppBadge(0);
+              setCurrentUser(null);
+              setActiveConvo(null);
+              pushToast({
+                title: 'Signed out',
+                body: 'That profile was removed from the database.',
+                kind: 'system',
+              });
+            }
+          })
+          .catch(() => {
+            // Keep session intact on network error
+          });
       }
     });
-  }, []);
+  }, [pushToast]);
 
   // Load userData when logged into a profile
   useEffect(() => {
@@ -278,16 +500,22 @@ export default function App() {
         },
       });
 
-      playMessageChime(prefs.sound);
-      vibrateAlert(prefs.vibrate, [55, 45, 55]);
+      // On Android native APK with notification permission granted, BeyondNotificationService
+      // plays the native channel sound, vibration, and heads-up MessagingStyle banner — skip duplicate WebAudio/vibrate.
+      const nativeHandlesAlert =
+        isNativeAndroid() && nativeNotifStatusRef.current?.permission === 'granted';
 
-      showSystemNotification({
-        title,
-        body,
-        tag: `bp-msg-${params.msgId}`,
-        target: `${params.kind}:${params.convoId}`,
-        isCall: false,
-      });
+      if (!nativeHandlesAlert) {
+        playMessageChime(prefs.sound);
+        vibrateAlert(prefs.vibrate, [55, 45, 55]);
+        showSystemNotification({
+          title,
+          body,
+          tag: `bp-msg-${params.msgId}`,
+          target: `${params.kind}:${params.convoId}`,
+          isCall: false,
+        });
+      }
     },
     [isReadingConversation, pushToast],
   );
@@ -419,6 +647,7 @@ export default function App() {
       setActiveCallUI(null);
       return;
     }
+    nativeClearCallNotification(c.callId);
     if (c.ringTimeout) window.clearTimeout(c.ringTimeout);
     if (c.durationTimer) window.clearInterval(c.durationTimer);
 
@@ -537,7 +766,7 @@ export default function App() {
       } catch {
         pushToast({
           title: `${video ? 'Camera' : 'Microphone'} blocked`,
-          body: 'Please allow media access in your browser to call.',
+          body: 'Please allow media access in your device settings to call.',
           kind: 'system',
         });
         return;
@@ -623,6 +852,7 @@ export default function App() {
     const c = rtcRef.current;
     if (!c || c.isCaller) return;
     const callId = c.callId;
+    nativeClearCallNotification(callId);
 
     let call: CallSignalData | null = null;
     try {
@@ -683,10 +913,13 @@ export default function App() {
     }
   }, [addCandidatesFrom, createPeerConnection, endActiveCall, flushCandidates, pushToast, syncCallUI]);
 
+  acceptIncomingCallRef.current = acceptIncomingCall;
+
   const declineIncomingCall = useCallback(async () => {
     const c = rtcRef.current;
     if (!c) return;
     const callId = c.callId;
+    nativeClearCallNotification(callId);
     setCallHistory((prev) =>
       prev.map((item) => (item.id === callId ? {...item, status: 'declined'} : item)),
     );
@@ -714,7 +947,7 @@ export default function App() {
       // New incoming call
       if (iAmCallee && (!rtcRef.current || rtcRef.current.callId !== callId)) {
         if (call.status === 'ringing') {
-          if (Date.now() - (call.createdAt || 0) > 60000) return;
+          if (Date.now() - (call.createdAt || 0) > 120000) return;
           if (rtcRef.current && rtcRef.current.callId !== callId) {
             set(ref(db, `calls/${callId}/status`), 'busy').catch(() => {});
             return;
@@ -762,13 +995,16 @@ export default function App() {
               ...prev.slice(0, 29),
             ]);
 
-            // Fire Call Notification (Sound, Vibration, Toast, OS System Notification)
             const prefs = notifPrefsRef.current;
             if (prefs.calls) {
-              startCallRingtone(prefs.sound);
-              vibrateAlert(prefs.vibrate, [350, 150, 350, 150, 350]);
+              // On foreground (or Web), ring in-app; when hidden on Android, native service rings loudly
+              const nativeBackgroundRinging = isNativeAndroid() && document.hidden;
+              if (!nativeBackgroundRinging) {
+                startCallRingtone(prefs.sound);
+                vibrateAlert(prefs.vibrate, [350, 150, 350, 150, 350]);
+              }
               pushToast({
-                title: isVideo ? `Incoming video call` : `Incoming voice call`,
+                title: isVideo ? 'Incoming video call' : 'Incoming voice call',
                 body: `${callerName} is calling you`,
                 kind: 'call',
                 avatarUrl: caller?.photo || undefined,
@@ -794,6 +1030,11 @@ export default function App() {
               endActiveCall(true);
             }
           }, 60000);
+
+          if (pendingAutoAnswerCallIdRef.current === callId && call.offer) {
+            pendingAutoAnswerCallIdRef.current = null;
+            window.setTimeout(() => acceptIncomingCallRef.current(), 80);
+          }
         }
         return;
       }
@@ -801,8 +1042,13 @@ export default function App() {
       if (!rtcRef.current || rtcRef.current.callId !== callId) return;
       const c = rtcRef.current;
 
+      // Auto-answer once offer arrives if user tapped Answer from phone notification
+      if (iAmCallee && c.ringing && !c.answered && pendingAutoAnswerCallIdRef.current === callId && call.offer) {
+        pendingAutoAnswerCallIdRef.current = null;
+        window.setTimeout(() => acceptIncomingCallRef.current(), 50);
+      }
+
       if (call.status === 'ended' || call.status === 'declined' || call.status === 'busy') {
-        // Missed call notification if it ended while ringing for callee
         if (iAmCallee && c.ringing && !c.answered) {
           setCallHistory((prev) =>
             prev.map((item) => (item.id === callId ? {...item, status: 'missed'} : item)),
@@ -865,23 +1111,53 @@ export default function App() {
     };
   }, [currentUser?.id, addCandidatesFrom, endActiveCall, flushCandidates, pushToast, syncCallUI]);
 
-  // Unlock profile handler — loads prefs & enables notification audio + push subscription
+  // Persistent login handler — stays signed in on this device until explicit Log Out
   const handleUnlockProfile = async (profile: Profile) => {
     unlockNotificationAudio();
+    saveLoggedInSession(profile);
     const prefs = loadNotifPrefs(profile.id);
     setNotifPrefs(prefs);
     setCurrentUser(profile);
     setActiveTab('home');
     setActiveConvo(null);
 
-    // Request system notification permission right after user gesture unlocking profile
-    if (prefs.messages || prefs.calls) {
+    if (isNativeAndroid()) {
+      await nativeSyncLoggedInSession(profile, prefs);
+      if (prefs.messages || prefs.calls) {
+        autoRequestedNotifForRef.current = profile.id;
+        await requestSystemNotificationPermission();
+        await refreshNativeStatus();
+        await nativeSyncLoggedInSession(profile, prefs);
+      }
+    } else if (prefs.messages || prefs.calls) {
       const perm = await requestSystemNotificationPermission();
       if (perm === 'granted') {
         registerPushSubscription(profile);
       }
     }
   };
+
+  // Explicit Log Out handler — clears saved session & stops phone background notifications
+  const handleLogout = useCallback(async () => {
+    endActiveCall(true);
+    clearSavedSession();
+    await nativeLogout();
+    updateAppBadge(0);
+    autoRequestedNotifForRef.current = null;
+    baselineChatsLoadedRef.current = false;
+    baselineGroupsLoadedRef.current = false;
+    seenMessageKeysRef.current.clear();
+    seenIncomingCallsRef.current.clear();
+    setCallHistory([]);
+    setActiveConvo(null);
+    setActiveTab('home');
+    setCurrentUser(null);
+    pushToast({
+      title: 'Logged out',
+      body: 'Sign in to any profile to resume messages and notifications.',
+      kind: 'system',
+    });
+  }, [endActiveCall, pushToast]);
 
   // Computed counts for badges & title
   const {unreadCount, conversationCount} = useMemo(() => {
@@ -909,7 +1185,15 @@ export default function App() {
 
   useEffect(() => {
     document.title = unreadCount > 0 ? `(${unreadCount > 99 ? '99+' : unreadCount}) Beyond Profiles` : 'Beyond Profiles';
+    updateAppBadge(unreadCount);
   }, [unreadCount]);
+
+  const handleChangePrefs = (next: NotificationPrefs) => {
+    if (!currentUser) return;
+    setNotifPrefs(next);
+    saveNotifPrefs(currentUser.id, next);
+    nativeUpdateNotificationPrefs(next);
+  };
 
   const handleToggleAllNotifications = async () => {
     if (!currentUser) return;
@@ -920,15 +1204,19 @@ export default function App() {
       messages: !currentlyOn,
       calls: !currentlyOn,
     };
-    setNotifPrefs(next);
-    saveNotifPrefs(currentUser.id, next);
+    handleChangePrefs(next);
 
     if (!currentlyOn) {
       const perm = await requestSystemNotificationPermission();
-      if (perm === 'granted') registerPushSubscription(currentUser);
+      await refreshNativeStatus();
+      if (isNativeAndroid()) {
+        await nativeSyncLoggedInSession(currentUser, next);
+      } else if (perm === 'granted') {
+        registerPushSubscription(currentUser);
+      }
       pushToast({
         title: 'Notifications enabled',
-        body: 'You will be alerted for every message and call.',
+        body: 'Your phone will alert you for every message and call.',
         kind: 'system',
       });
     } else {
@@ -1086,13 +1374,28 @@ export default function App() {
               <SettingsView
                 currentUser={currentUser}
                 prefs={notifPrefs}
-                onChangePrefs={(next) => {
-                  setNotifPrefs(next);
-                  saveNotifPrefs(currentUser.id, next);
-                }}
+                nativeStatus={nativeNotifStatus}
+                onChangePrefs={handleChangePrefs}
                 onEnablePush={async () => {
                   const perm = await requestSystemNotificationPermission();
-                  if (perm === 'granted') {
+                  const status = await refreshNativeStatus();
+                  if (isNativeAndroid()) {
+                    await nativeSyncLoggedInSession(currentUser, notifPrefs);
+                    if (status?.permission === 'granted' || perm === 'granted') {
+                      pushToast({
+                        title: 'Phone notifications enabled',
+                        body: 'WhatsApp-style alerts will appear even when the app is closed.',
+                        kind: 'system',
+                      });
+                    } else {
+                      pushToast({
+                        title: 'Permission needed',
+                        body: 'Enable Beyond Profiles notifications in Android settings.',
+                        kind: 'system',
+                      });
+                      await nativeOpenNotificationSettings();
+                    }
+                  } else if (perm === 'granted') {
                     await registerPushSubscription(currentUser);
                     pushToast({
                       title: 'System notifications enabled',
@@ -1107,7 +1410,31 @@ export default function App() {
                     });
                   }
                 }}
-                onTestAlert={() => {
+                onOpenNativeSettings={async () => {
+                  await nativeOpenNotificationSettings();
+                }}
+                onRequestBatteryExemption={async () => {
+                  await nativeRequestBatteryOptimizationExemption();
+                  window.setTimeout(() => refreshNativeStatus(), 1000);
+                }}
+                onTestAlert={async () => {
+                  if (isNativeAndroid()) {
+                    const shown = await nativeShowTestNotification();
+                    if (shown) {
+                      pushToast({
+                        title: 'Phone notification sent',
+                        body: 'Check your phone status bar & notification shade.',
+                        kind: 'message',
+                      });
+                    } else {
+                      pushToast({
+                        title: 'Allow notifications first',
+                        body: 'Tap Allow Phone Notifications so Android can show alerts.',
+                        kind: 'system',
+                      });
+                    }
+                    return;
+                  }
                   playMessageChime(notifPrefs.sound);
                   vibrateAlert(notifPrefs.vibrate, [60, 40, 60]);
                   pushToast({
@@ -1122,11 +1449,7 @@ export default function App() {
                     isCall: false,
                   });
                 }}
-                onSwitchProfile={() => {
-                  endActiveCall(true);
-                  setCurrentUser(null);
-                  setActiveConvo(null);
-                }}
+                onLogout={handleLogout}
               />
             )}
           </main>
